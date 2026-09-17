@@ -1,0 +1,23 @@
+{
+  "schema_version": 2,
+  "status": "needs_user_task",
+  "cad_file": null,
+  "heat_flux_W_m2": null,
+  "total_heat_load_W": null,
+  "heated_faces": [],
+  "inlet_faces": [],
+  "outlet_faces": [],
+  "maximum_surface_temperature_K": null,
+  "inlet_temperature_K": null,
+  "solid_material": null,
+  "coolant_material": null,
+  "objective": null,
+  "operating_mode": null,
+  "other_thermal_boundaries": null,
+  "material_properties": null,
+  "acceptance_criteria": null,
+  "mass_flow_bounds_kg_s": null,
+  "outlet_absolute_pressure_bounds_Pa": null,
+  "geometry_changes_allowed": false,
+  "assumptions": []
+}

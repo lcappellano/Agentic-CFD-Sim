@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Cooling workbench · Requirements review</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">{"imports":{"three":"/vendor/three.module.js"}}</script>
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div><span class="eyebrow">COOLING WORKBENCH</span><h1>Review the part. Define the run.</h1></div>
+  <span class="status" id="review-status">Loading review…</span>
+</header>
+<div id="message" role="alert" hidden></div>
+<main>
+  <section class="model-panel" aria-label="3D model and surface assignments">
+    <div class="model-title"><div><h2 id="model-name">STEP model</h2><p id="model-dimensions">Loading geometry…</p></div><button id="fit-view" type="button">Fit view</button></div>
+    <div class="toolbar" aria-label="Click a surface to assign this role">
+      <span>Click to:</span>
+      <button type="button" data-role="inspect" aria-pressed="true">Inspect</button>
+      <button type="button" data-role="inlet" class="inlet" aria-pressed="false">Inlet</button>
+      <button type="button" data-role="outlet" class="outlet" aria-pressed="false">Outlet</button>
+      <button type="button" data-role="heated" class="heated" aria-pressed="false">Heat into solid</button>
+      <button type="button" data-role="clear" aria-pressed="false">Clear</button>
+    </div>
+    <div id="viewport"><div id="viewer-placeholder">Loading local 3D viewer…</div><div class="view-hint">Drag to orbit · scroll to zoom · right-drag to pan</div></div>
+    <div class="view-options">
+      <label><input type="checkbox" id="show-caps" checked> Show proposed port caps</label>
+      <label><input type="checkbox" id="xray"> Transparent solid</label>
+      <label><input type="checkbox" id="solo"> Isolate inspected surface</label>
+    </div>
+    <div class="selection-summary" id="selection-summary"></div>
+    <p style="padding:0 18px;font-size:12px;color:#536d7e">Flow: <strong>blue inlet → passage → green outlet</strong>. Heat: <strong>into orange solid surfaces</strong>. Assignments remain proposals until you approve.</p>
+    <div class="inspector" id="inspector" aria-live="polite">Select a surface to inspect it. Purple caps are proposed openings, awaiting your assignment.</div>
+    <details class="face-browser"><summary>Surface list · keyboard alternative</summary><p>Choose a role above, then choose a surface. Inspect mode does not change assignments.</p><div id="face-list"></div></details>
+    <details class="source-details"><summary>Source and geometry notes</summary><div id="source-details"></div><ul id="geometry-warnings"></ul></details>
+  </section>
+  <aside class="requirements-panel">
+    <div class="section-intro"><span class="eyebrow">1 · DEFINE</span><h2>Simulation requirements</h2><p>Review only. This step does not create a simulation mesh or solve the part. CAD cannot determine your heat load or plumbing direction.</p></div>
+    <form id="requirements-form">
+      <label>Run title<input name="title" type="text" placeholder="A short name for this review"></label>
+      <label class="check-label"><input name="units_confirmed" type="checkbox"> I checked the displayed dimensions in mm against the intended part.</label>
+      <fieldset><legend>Materials and temperatures</legend>
+        <label>Solid material / grade<input name="solid_material" type="text" placeholder="Material and grade or supplied properties"></label>
+        <label>Coolant and composition<input name="coolant_material" type="text" placeholder="Fluid identity and mixture concentration"></label>
+        <div class="field-pair"><label>Inlet temperature (K)<input name="inlet_temperature_K" type="number" step="any" min="0"></label><label>Maximum heated-surface temperature (K)<input name="maximum_surface_temperature_K" type="number" step="any" min="0"></label></div>
+        <p class="help">Temperature limit applies to the orange selected heated surfaces. Enter absolute temperatures in kelvin.</p>
+      </fieldset>
+      <fieldset><legend>Heating</legend>
+        <label>Uniform heating input<select name="heat_mode"><option value="heat_flux_W_m2">Heat flux · W/m²</option><option value="total_heat_load_W">Total power · W</option></select></label>
+        <label id="heat-value-label"><span id="heat-value-unit">Heat flux (W/m²)</span><input name="heat_value" type="number" step="any" min="0"></label>
+        <p class="help" id="heat-explanation">Uniform heat flux into the solid on every orange surface.</p>
+        <p class="help" id="heated-area"></p>
+        <label>Other thermal boundaries<textarea name="other_thermal_boundaries" rows="3" placeholder="Explicit conditions for the remaining surfaces; e.g. adiabatic, or ambient temperature and convection coefficient"></textarea></label>
+      </fieldset>
+      <fieldset><legend>Coolant operating bounds</legend>
+        <p class="help">Coolant enters the blue inlet set and exits the green outlet set. Use equal lower and upper values for a fixed operating point.</p>
+        <div class="field-pair"><label>Mass flow lower (kg/s)<input name="flow_min" type="number" step="any" min="0" aria-describedby="flow_min-error"><span class="field-error" id="flow_min-error" hidden></span></label><label>Mass flow upper (kg/s)<input name="flow_max" type="number" step="any" min="0" aria-describedby="flow_max-error"><span class="field-error" id="flow_max-error" hidden></span></label></div>
+        <label>Pressure reference<select name="pressure_mode"><option value="absolute">Absolute pressure · relative to vacuum</option><option value="gauge">Gauge pressure · relative to ambient</option></select></label>
+        <label id="pressure-reference-field" hidden>Ambient/reference absolute pressure (bar)<input name="pressure_reference" type="number" step="any" min="0" placeholder="Enter the agreed reference pressure" aria-describedby="pressure_reference-error"><span class="field-error" id="pressure_reference-error" hidden></span></label>
+        <div class="field-pair"><label><span id="pressure-min-label">Outlet pressure lower (bar absolute)</span><input name="pressure_min" type="number" step="any" aria-describedby="pressure-help pressure_min-error"><span class="field-error" id="pressure_min-error" hidden></span></label><label><span id="pressure-max-label">Outlet pressure upper (bar absolute)</span><input name="pressure_max" type="number" step="any" aria-describedby="pressure-help pressure_max-error"><span class="field-error" id="pressure_max-error" hidden></span></label></div>
+        <p class="help" id="pressure-help">Both absolute-pressure bounds must be greater than zero, with lower ≤ upper. For a fixed pressure, enter the same value in both boxes.</p>
+        <p class="help" id="pressure-conversion" aria-live="polite"></p>
+      </fieldset>
+      <fieldset><legend>Goal and scope</legend>
+        <label>Requested result or search objective<textarea name="objective" rows="2" placeholder="What should the simulation establish?"></textarea></label>
+        <p class="scope-note">Initial scope: steady operation, one solid material, one coolant, uniform heating and fixed geometry.</p>
+        <label>Notes and additional constraints<textarea name="notes" rows="3" placeholder="Document uncertainty, supporting material data, or additional requirements"></textarea></label>
+      </fieldset>
+    </form>
+    <div class="save-bar"><button id="save" type="button" class="primary" disabled>Save draft</button><button id="reload" type="button">Reload saved</button><span id="save-state">Loading…</span></div>
+    <section class="approval-panel">
+      <span class="eyebrow">2 · CONFIRM</span><h2>Visual and numerical review</h2>
+      <p>Confirm that the highlighted surfaces, proposed port caps, flow direction, scale and values match your intended setup. The CAD specialist will still verify the openings and regions.</p>
+      <div id="issues-panel"><h3>Still needed</h3><ul id="issues"></ul></div>
+      <label>Your name<input id="reviewer" type="text" autocomplete="name" placeholder="Reviewer name"></label>
+      <label class="check-label"><input id="confirm-review" type="checkbox"> I have checked this saved 3D selection and these requirements, and approve them for CAD preparation.</label>
+      <button id="approve" type="button" class="primary" disabled>Approve this review</button>
+      <p id="approval-details" aria-live="polite"></p>
+    </section>
+    <section class="handoff-panel"><span class="eyebrow">3 · HAND OFF</span><h2>Ready for CAD preparation</h2><p>The handoff records the approved inputs and exact geometry version. It does not start a simulation.</p><button id="handoff" type="button" disabled>Create CAD handoff</button><p id="handoff-result" aria-live="polite"></p></section>
+  </aside>
+</main>
+<noscript>This local 3D review requires JavaScript. No simulation runs from this page.</noscript>
+</body>
+</html>

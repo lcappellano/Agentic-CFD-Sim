@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+inputs/*
+!inputs/README.md
+runs/*
+!runs/README.md
+.env
+.env.*
