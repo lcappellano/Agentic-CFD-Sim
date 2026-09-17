@@ -80,3 +80,32 @@
 - 45 regression tests passed: runs/20260917T225642-pressure-bar-regression-8a44f5d6.
   Actual Chromium save/reload/gauge/bar/approval guards passed:
   runs/20260917T225646-pressure-bar-browser-df89a5ab. Viewer restarted on port 8765.
+
+## First authorized baseline — 2026-09-17
+
+- User explicitly authorized running approved demo baseline with fixed geometry. Active run: runs/20260917T231138-demo-baseline-7716aa5b; revision 8 receipt verified and immutable copies prepared. Latest approved outlet bounds are 0.1–4 bar gauge, superseding earlier memory values. Copper/water, 300 K inlet, 100 kW/m² heating, 500 K heated-face limit, 0.5–10 kg/s.
+- Actual CAD, CFD, thermal, verification specialists assigned; manager owns run plan/workflow and integration. Read current plan/status before resuming. No geometry optimization authorized.
+- Created .venv with --without-pip (system ensurepip unavailable); use .venv/bin/python. No external Python dependency installed.
+
+## Baseline completed and accepted — 2026-09-17
+
+- Run runs/20260917T231138-demo-baseline-7716aa5b is complete; authoritative result
+  report/report.md and verification-decision.json: accepted_with_model_limits.
+  Canonical case-hex-coarse-corrected / case-hex-fine-corrected, 2000iterations,
+  4localMPI ranks, OpenCFD v2412 patch260127; fixed STEP hash unchanged.
+- At0.5kg/s(0.501481L/s), outlet0.1barg(1.11325bara),240W: heatedTmax308.251748K
+  vs500K;wetTmax304.96104K;conservative saturationmargin70.8218K;Δp0.0869754bar.
+  Paired mesh ΔT0.00410K,Δp0.625%; conservation/residual/drift criteria pass.
+- Final geometry/v3; meshes geometry/structured/coarse and fine-wall,79872/241920
+  hex cells. Tetra diagnostics failed22%Δp sensitivity. Limited solid diffusion
+  biased temperature; full correction/leastSquares/3nonorthpasses adopted.
+- Fine yPlusmin29.405:8faces,0.07685%wetarea,firstinletrow below nominal30.
+  Independent explicit wall-model qualification accepted; automatedflag retained.
+  No experimentalvalidation, boiling simulation, geometrychange or operating sweep.
+- 47 regressiontests pass; finalplots viaParaView6.0.1 bundledmatplotlib3.10.7,
+  avoiding new pipdependencies. Job index and failed development evidence retained.
+- All full fields/logs remain local under ignored runs/. Existing public repo
+  publication predates these changes; no new commit or push performed in this task.
+- Next requested engineering task: use verified demo as reference, visuallyapprove
+  any new STEP requirements and implement/review its geometry-specific adapter.
+  Do not assume demo-only source guards support arbitrary parts.

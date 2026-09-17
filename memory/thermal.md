@@ -29,3 +29,22 @@
   face; preserve opening definitions until CAD establishes final fluid boundaries.
 - Tool version: documentation-only work; no CAD, thermal or CFD engine invoked.
   No new numerical or material-property results are claimed.
+
+## Straight-bore baseline screening (2026-09-17)
+
+- Origin: `runs/20260917T231138-demo-baseline-7716aa5b`; recorded calculation
+  `runs/20260917T231454-demo-thermal-estimate-240d785b`, Python 3.14.4,
+  `src/thermal/demo_estimate.py`. All estimates are distinct from CFD evidence.
+- Primary property sources and model limits are recorded in run
+  `thermal/engineering_basis.md`; script has no third-party dependencies.
+- A short L/D pipe with one-sided solid heating requires a conjugate solution
+  for heated-face maximum: uniform wetted-wall correlation temperature is not
+  a maximum or a rigorous upper bound. Use correlations only for screening.
+- For heat balances inspect the solver energy equation: hydraulic power can
+  exceed a percent of externally applied heat even when bulk warming is tiny.
+  Distinguish thermal-only balances from total-energy balances including work.
+- An adiabatic exterior in vacuum is conservative only when omitted radiation
+  would be net cooling; external irradiation/hot surroundings must be absent.
+- Boiling screening must use wetted-wall temperature and absolute liquid
+  pressure. The allowed heated-solid temperature alone does not establish
+  single-phase validity. No CHF or film-boiling model has been validated here.

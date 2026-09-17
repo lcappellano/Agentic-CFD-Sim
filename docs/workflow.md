@@ -59,9 +59,10 @@ applicability are resolved with the specialists before physical execution.
    review evidence and unresolved limits. A successful process exit is not proof
    of a converged or physically validated result.
 
-The first engineering milestone remains a simple reproducible benchmark before
-adapting arbitrary STEP files. Geometry extraction and solver adapters are not
-implemented yet. Setup completion does not imply the simulation pipeline works.
+The first fixed-demo benchmark has now been executed and independently reviewed;
+see [the baseline guide](baseline-demo.md). Its adapters check that exact geometry
+and operating point. Adapting a new STEP still requires approved requirements,
+geometry preparation and case verification; general STEP automation is unsupported.
 
 ## Infrastructure commands
 

@@ -3,11 +3,13 @@
 A VS Code / WSL starter project for an interactive Codex manager and five
 specialists, with CAD and simulation computation on your computer.
 
-**Setup completed (2026-09-17), stopped before simulation.** All four specialist
-roles were activated. Request intake, versioned snapshots, and status checks are
-available. Start with [the manager workflow and request template](docs/workflow.md).
-OpenCFD OpenFOAM v2412 was discovered locally and its CHT help commands checked;
-the environment must be sourced. No physical solver case has been run.
+**Fixed-demo baseline completed and independently reviewed (2026-09-17).**
+The approved copper/water demo was solved locally with OpenCFD OpenFOAM v2412.
+At 0.50148 L/s and 0.1 bar gauge outlet pressure, the predicted heated maximum is
+308.252 K against a 500 K limit. Conservation, convergence and paired-mesh checks
+pass with documented model limits. See [the baseline guide](docs/baseline-demo.md),
+[local result report](runs/20260917T231138-demo-baseline-7716aa5b/report/report.md),
+and [manager workflow](docs/workflow.md). Raw run artifacts are ignored by Git.
 
 **Visual requirements review added:** the new requirements specialist imports
 STEP into a local 3D viewer, proposes inlet/outlet/heated surfaces, collects physical
@@ -29,12 +31,14 @@ values and waits for your explicit visual confirmation before CAD handoff. See
 - STEP surface display, 3D face selection, candidate circular port caps, saved
   requirements drafts, user approval and checked/versioned CAD handoff packages.
 
-**Not implemented yet:** automatic fluid-domain extraction, CAD modification,
-meshing, a physical CHT case, operating-point optimization, or an unattended
-manager service. The specialist source directories are explicit extension points.
-Live specialist spawning and infrastructure checks have now been exercised in
-this WSL2 environment. Engineering toolchain validation still requires the first
-benchmark. See VALIDATION.md for the setup evidence.
+- Exact solid/fluid preparation for the guarded through-bore demo, conformal
+  aligned meshes, recorded local MPI CHT solves, independent numerical review,
+  and plots from saved fields.
+
+**Not implemented yet:** arbitrary STEP-to-CHT automation, general passage
+extraction/healing, geometry optimization, operating-point search, or an unattended
+manager service. The verified adapters support this fixed demo; a new geometry
+requires preparation and review. See VALIDATION.md for evidence and limits.
 
 ## 1. Open it locally in VS Code
 
@@ -122,14 +126,14 @@ Paste this into the local Codex chat:
 > Read AGENTS.md and act as this project's manager. Use the project-defined cad,
 > cfd, thermal, and verification subagents for bounded tasks. First inspect the
 > local environment and run the infrastructure smoke test. Then implement the
-> first milestone: a reproducible simple cooling-channel benchmark with solid
-> and fluid geometry, one OpenFOAM CHT case, and an independently checked report.
+> next requested simulation using the verified fixed-demo baseline as a reference.
+> Read docs/baseline-demo.md and the latest manager notes before selecting adapters.
 > Keep scripts in each specialist's src directory and run records under runs/.
 > Delegate independent work and serialize dependent steps. Report actual tool
 > outputs and clearly identify any missing capabilities. Keep me informed of the
 > files changed and how to inspect or rerun each stage.
 
-After the benchmark is verified, put your STEP in inputs/ and give the manager
+For a new part, put your STEP in inputs/ and give the manager
 the file path, heat flux, heated surfaces, material, temperature limit, coolant
 inlet temperature, flow/pressure bounds, and whether geometry changes are allowed.
 It should fill project.json and adapt the baseline workflow to that geometry.
@@ -184,7 +188,7 @@ automatically. A job with status='succeeded' still requires numerical checks.
 
 ## Build toward the full framework
 
-1. Verify a simple end-to-end CHT benchmark on the installed toolchain.
+1. Preserve and replay the verified fixed-demo CHT baseline and its evidence.
 2. Implement STEP inspection, domain extraction, and robust boundary labeling.
 3. Add fixed-geometry operating sweeps with scripts, explicit bounds and caching.
 4. Add conservation, convergence, mesh sensitivity, and model-validity checks.

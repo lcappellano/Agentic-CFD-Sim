@@ -3,8 +3,9 @@
 Status: STEP **display import** is implemented in step_preview.py using the pinned
 Gmsh API and local OpenCASCADE backend. It produces per-face display triangles and
 unconfirmed circular port-cap candidates for the requirements viewer. Synthetic
-display fixtures are included. Fluid-domain extraction, physical boundary
-verification and simulation geometry export remain unimplemented.
+display fixtures are included. The exact hash-guarded demo additionally has verified
+solid/fluid preparation in prepare_demo_baseline.py and aligned conformal meshing
+in mesh_demo_structured.py. General passage extraction remains unsupported.
 
 Before downstream CAD preparation, read docs/requirements-review.md and verify
 the user-approved package with tools/workbench.py review-verify. Consume the
@@ -69,8 +70,8 @@ quality and CFD boundary-condition verification remain downstream tasks.
 
 ## Current limits
 
-The first supported geometry must be established with a reproducible benchmark
-and reviewed before adaptation to user STEP files. Arbitrary STEP imports,
+The through-bore demo has an executed and reviewed baseline; see
+docs/baseline-demo.md. New geometries need separate preparation and verification. Arbitrary STEP imports,
 automatic passage closure/extraction, assembly healing, thin gaps, nonmanifold
 geometry, multiple circuits, and automatic heated-face recognition currently
 have no verified support. STEP exchange does not preserve SolidWorks feature

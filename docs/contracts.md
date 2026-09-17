@@ -109,9 +109,10 @@ tools/workbench.py is a small local process recorder, not an autonomous manager.
 It records commands and specified input hashes but cannot automatically discover
 every dependency. The caller must list all relevant input files.
 
-STEP display import and requirements review are implemented. Simulation region
-extraction, CFD and thermal adapters remain extension points. Implement these with one local
-benchmark. Later add a persistent job service if unattended execution and automatic
+STEP display import and requirements review are implemented. The guarded demo now
+has exact region preparation, aligned meshing, local CHT and independent review;
+see docs/baseline-demo.md. Arbitrary STEP simulation remains unsupported. Later
+add a persistent job service if unattended execution and automatic
 manager wake-up are needed. Closing a chat does not make these instructions run
 forever; a running client/service is required. WSL must remain awake during solves.
 

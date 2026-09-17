@@ -1,10 +1,36 @@
-# Setup validation — 2026-09-17
+# Validation record — 2026-09-17
+
+## Executed fixed-demo baseline
+
+Run `runs/20260917T231138-demo-baseline-7716aa5b` received explicit simulation
+authorization after revision-8 visual approval. Exact CAD stayed unchanged.
+OpenCFD v2412 CHT on 79,872 / 241,920 aligned hex cells predicts heated maximum
+308.251748 K at 0.5 kg/s and 111325 Pa absolute outlet pressure. Pressure drop
+is 8697.54 Pa. Paired maximum change is 0.00410 K; pressure change 0.625%.
+Mass, modeled energy (including inlet diffusion), convergence and residual
+criteria pass. Independent decision: `accepted_with_model_limits`; no experimental
+validation claimed. Fine yPlus29.405 minimum affects only0.07685% of wetted area;
+the report retains the automated flag and explicit engineering acceptance.
+
+Canonical cases: `case-hex-coarse-corrected`, `case-hex-fine-corrected`.
+Independent evidence: `verification-final-evidence.json`, `verification.md`,
+`verification-decision.json`; integrated report: `report/report.md`. The initial
+tetra pair failed hydraulic sensitivity and is diagnostic only. Fully corrected
+solid diffusion replaced a biased limited correction. All artifacts are local
+under the existing ignore policy; the reusable source is tracked normally.
+
+Recorded final checks: `20260917T234047-baseline-independent-final-pair-d875925b`,
+`20260917T234248-demo-framework-regression-localhost-721c17b2` (45 infrastructure
+plus2 CAD tests), `20260917T234330-demo-final-surface-plots-b7445884`. Exact commands,
+input hashes, logs and failed development attempts are indexed by workflow.json.
+
+The sections below are historical records of the earlier setup stages.
 
 ## Visual requirements extension
 
 Implemented after the initial setup below. Actual STEP **display tessellation**
 and a synthetic CAD fixture were generated; no simulation mesh, CFD or physical
-thermal prediction was executed. New persistent demo remains unapproved.
+thermal prediction was executed. At that earlier stage, the persistent demo was unapproved.
 
 | Check | Result | Evidence under runs/ |
 | --- | --- | --- |

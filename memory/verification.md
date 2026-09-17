@@ -40,3 +40,31 @@
   approve. Legacy drafts without pressure_input retain absolute semantics.
   This tests intake behavior only, not pressure/phase suitability for a solve.
   Verification used temporary fixtures and made no changes to the live review.
+- Baseline development, runs/20260917T231138-demo-baseline-7716aa5b,
+  OpenCFD v2412 patch260127/Python3.14.4: low residuals and conservation did
+  not ensure mesh accuracy. Initial tetra pair showed ~22% pressure-drop
+  sensitivity; retained as rejected development evidence. Aligned extruded
+  meshes remove obvious pressure extrema, but require their own paired review.
+- Same run/version: solid nonorthogonal diffusion limiter changed heated Tmax
+  by 0.636 K and moved the hotspot from top center to lateral edge in an aligned
+  coarse mesh. Review numerical schemes as well as mesh counts; do not infer
+  a temperature-location parser bug from an unexpected pattern alone. Static
+  face-coordinate matching established the pattern existed in the raw field.
+- Same run/version: modeled steady energy accounting requires signed enthalpy
+  plus kinetic flux and fixed-temperature inlet diffusion. Corrected aligned
+  coarse case had −0.132598 W heat into fluid at inlet; including it closed the
+  240 W modeled balance to 2.61e−8 fraction. Exact inlet-gradient reconstruction
+  applies only to orthogonal straight extrusions, not arbitrary hexahedra.
+- Independent ASCII audit must match the complete `value` token, not the prefix
+  of `valueFraction`; mixed temperature conditions contain both. Initial audit
+  diagnostic was repaired before final accepted evidence. Reference values and
+  gradient coefficients must never substitute for saved boundary temperatures.
+- Final corrected aligned pair in same baseline run, OpenCFD v2412 patch260127,
+  independent job20260917T234047-baseline-independent-final-pair-d875925b:
+  adopted numerical checks passed; heated maximum308.25175K, mesh difference
+  0.00410K/0.04968% of rise, pressure-drop sensitivity0.62524%. Final report
+  verification.md accepts limited baseline screening, not experimental validation.
+  Fine yPlus29.405–50.483 included8/6912faces below nominal30 at first axial row;
+  qualified manual wall-model acceptance documented separately from automated
+  numerical checks. A nominal guideline is not silently promoted to a new hard
+  criterion or silently relaxed to produce a pass. Preserve explicit judgment.

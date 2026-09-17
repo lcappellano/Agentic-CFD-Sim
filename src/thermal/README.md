@@ -2,8 +2,9 @@
 
 The thermal specialist owns `src/thermal/`. It supports the manager with energy
 balances, estimates, operating-case selection, and interpretation. This directory
-is currently a documented extension point: no engineering adapter or simulation
-has been implemented or executed as part of workflow setup.
+includes demo_estimate.py for sourced fixed-demo energy, pressure-loss and
+saturation screening. Its estimates support the executed local CHT baseline;
+see docs/baseline-demo.md. Correlations are not executed CFD results.
 
 ## Request intake
 
