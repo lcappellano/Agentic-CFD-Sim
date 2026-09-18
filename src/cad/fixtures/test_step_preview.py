@@ -6,8 +6,9 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from step_preview import backend, digest, preview_step
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from src.cad.step_preview import backend, preview_step
+from src.foam.hashing import digest
 
 FIXTURE = Path(__file__).with_name("cooling_block_through_bore_v1.step")
 

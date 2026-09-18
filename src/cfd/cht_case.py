@@ -1,97 +1,200 @@
-"""Reusable two-region conformal-mesh OpenCFD v2412 CHT builder (SI).
+"""Build an OpenCFD v2412 two-region ``chtMultiRegionSimpleFoam`` case.
 
-Named patches: inlet, outlet, heated, outerWalls. Volume regions: fluid, solid.
-All physical inputs must be explicit in a configuration JSON.
+Inputs: a conformal MSH2 mesh with cell zones ``fluid``/``solid`` and patches
+``inlet``, ``outlet``, ``heated``, ``outerWalls``; a material basis; and the
+complete settings produced by :func:`src.cfd.settings.case_settings`.
 """
-import argparse,json,math,re,subprocess,hashlib
+import argparse
+import json
 from pathlib import Path
+import re
+import shutil
 
-def write(path,body,cls='dictionary',obj=None):
-    path.parent.mkdir(parents=True,exist_ok=True)
-    path.write_text(f'FoamFile {{ version 2.0; format ascii; class {cls}; object {obj or path.name}; }}\n'+body+'\n')
+from src.cfd.transport import fluid_dictionary, solid_dictionary
+from src.cfd.turbulence import setup as turbulence_setup
+from src.foam.dictionary import write_dictionary, write_field, vector_text
+from src.foam.environment import run_tool, openfoam_version
+from src.foam.hashing import digest
 
-def build(case,mesh,props,iterations,config):
-    if props is None: raise ValueError('Explicit thermal estimates.json required')
-    basis=json.loads(props.read_text())
-    cfg=json.loads(config.read_text())
-    required=['inlet_temperature_K','outlet_absolute_pressure_Pa','mass_flow_kg_s','heat_flux_W_m2','inlet_area_m2','inlet_direction','hydraulic_diameter_m','geometry_manifest']
-    for key in required:
-        if key not in cfg: raise ValueError('Missing case setting '+key)
-    tin=cfg['inlet_temperature_K']; pout=cfg['outlet_absolute_pressure_Pa']; mdot=cfg['mass_flow_kg_s']; flux=cfg['heat_flux_W_m2']
-    if min(tin,pout,mdot,flux,cfg['inlet_area_m2'],cfg['hydraulic_diameter_m'])<=0: raise ValueError('Case settings must be positive SI values')
-    direction=cfg['inlet_direction']; norm=math.sqrt(sum(x*x for x in direction))
-    if len(direction)!=3 or abs(norm-1)>1e-6: raise ValueError('inlet_direction must be unit vector pointing into fluid')
-    case.mkdir(parents=True,exist_ok=False)
-    (case/"adapter-cht_case.py").write_bytes(Path(__file__).read_bytes())
-    write(case/'system/controlDict',f'''application chtMultiRegionSimpleFoam;
-startFrom latestTime; startTime 0; stopAt endTime; endTime {iterations}; deltaT 1;
-writeControl timeStep; writeInterval 100; purgeWrite 2; writeFormat ascii; writePrecision 12; runTimeModifiable true;
-functions {{
-    solidWallHeatFlux {{ type wallHeatFlux; libs (fieldFunctionObjects); region solid; writeControl timeStep; writeInterval 10; }}
-    fluidWallHeatFlux {{ type wallHeatFlux; libs (fieldFunctionObjects); region fluid; writeControl timeStep; writeInterval 10; }}
-    yPlus {{ type yPlus; libs (fieldFunctionObjects); region fluid; writeControl writeTime; }}
-    fluidMinMax {{ type fieldMinMax; libs (fieldFunctionObjects); region fluid; fields (T p U); executeControl timeStep; executeInterval 20; writeControl timeStep; writeInterval 20; }}
-'''+ '\n'.join(f'''{name} {{ type surfaceFieldValue; libs (fieldFunctionObjects); region {region}; regionType patch; name {patch}; operation {op}; fields ({fields}); writeFields false; writeControl timeStep; writeInterval 10; {extra} }}''' for name,region,patch,op,fields,extra in [
- ('inletPressure','fluid','inlet','areaAverage','p',''),('outletPressure','fluid','outlet','areaAverage','p',''),
- ('inletMass','fluid','inlet','sum','phi',''),('outletMass','fluid','outlet','sum','phi',''),
- ('inletTemperature','fluid','inlet','weightedAverage','T','weightField phi;'),('outletTemperature','fluid','outlet','weightedAverage','T','weightField phi;'),
- ('heatedPower','solid','heated','areaIntegrate','wallHeatFlux',''),('interfacePower','solid','solid_to_fluid','areaIntegrate','wallHeatFlux',''),('fluidPower','fluid','fluid_to_solid','areaIntegrate','wallHeatFlux',''),
- ('heatedMax','solid','heated','max','T',''),('wettedMax','fluid','fluid_to_solid','max','T','')])+ '\n}\n')
-    write(case/'system/fvSchemes','ddtSchemes { default steadyState; } gradSchemes { default Gauss linear; } divSchemes { default none; } laplacianSchemes { default Gauss linear corrected; } interpolationSchemes { default linear; } snGradSchemes { default corrected; }')
-    write(case/'system/fvSolution','')
-    for cmd in [['gmshToFoam',str(mesh.resolve())],['splitMeshRegions','-cellZones','-overwrite']]:
-        with (case/('log.'+cmd[0])).open('w') as log: subprocess.run(cmd+['-case',str(case.resolve())],stdout=log,stderr=subprocess.STDOUT,check=True)
-    boundary=case/'constant/solid/polyMesh/boundary'
+MONITORS = [
+    ('inletPressure', 'fluid', 'inlet', 'areaAverage', 'p', ''),
+    ('outletPressure', 'fluid', 'outlet', 'areaAverage', 'p', ''),
+    ('inletMass', 'fluid', 'inlet', 'sum', 'phi', ''),
+    ('outletMass', 'fluid', 'outlet', 'sum', 'phi', ''),
+    ('inletTemperature', 'fluid', 'inlet', 'weightedAverage', 'T', 'weightField phi;'),
+    ('outletTemperature', 'fluid', 'outlet', 'weightedAverage', 'T', 'weightField phi;'),
+    ('heatedPower', 'solid', 'heated', 'areaIntegrate', 'wallHeatFlux', ''),
+    ('interfacePower', 'solid', 'solid_to_fluid', 'areaIntegrate', 'wallHeatFlux', ''),
+    ('fluidPower', 'fluid', 'fluid_to_solid', 'areaIntegrate', 'wallHeatFlux', ''),
+    ('heatedMax', 'solid', 'heated', 'max', 'T', ''),
+    ('wettedMax', 'fluid', 'fluid_to_solid', 'max', 'T', ''),
+]
+
+
+def control_dict(settings):
+    functions = [
+        'solidWallHeatFlux { type wallHeatFlux; libs (fieldFunctionObjects); region solid; writeControl timeStep; writeInterval 10; }',
+        'fluidWallHeatFlux { type wallHeatFlux; libs (fieldFunctionObjects); region fluid; writeControl timeStep; writeInterval 10; }',
+        'yPlus { type yPlus; libs (fieldFunctionObjects); region fluid; writeControl writeTime; }',
+        'fluidTemperatureGradient { type grad; libs (fieldFunctionObjects); region fluid; field T; result gradT; '
+        'executeControl timeStep; executeInterval 10; writeControl writeTime; }',
+        f'fluidMinMax {{ type fieldMinMax; libs (fieldFunctionObjects); region fluid; fields (T p U); '
+        f'executeControl timeStep; executeInterval {settings["field_minmax_interval"]}; '
+        f'writeControl timeStep; writeInterval {settings["field_minmax_interval"]}; }}',
+    ]
+    for name, region, patch, operation, fields, extra in MONITORS:
+        functions.append(f'{name} {{ type surfaceFieldValue; libs (fieldFunctionObjects); region {region}; '
+                         f'regionType patch; name {patch}; operation {operation}; fields ({fields}); '
+                         f'writeFields false; writeControl timeStep; writeInterval 10; {extra} }}')
+    body = '\n    '.join(functions)
+    return (f'application chtMultiRegionSimpleFoam;\nstartFrom latestTime; startTime 0; stopAt endTime; '
+            f'endTime {settings["iterations"]}; deltaT 1;\nwriteControl timeStep; writeInterval {settings["write_interval"]}; '
+            f'purgeWrite 2; writeFormat ascii; writePrecision 12; runTimeModifiable true;\n'
+            f'functions\n{{\n    {body}\n}}')
+
+
+def fluid_schemes(settings):
+    return ('ddtSchemes { default steadyState; }\n'
+            'gradSchemes { default Gauss linear; }\n'
+            'divSchemes { default none; div(phi,U) bounded Gauss linearUpwind grad(U); div(phi,h) bounded Gauss upwind; '
+            'div(phi,K) Gauss upwind; div(phi,k) bounded Gauss upwind; div(phi,epsilon) bounded Gauss upwind; '
+            'div(phi,omega) bounded Gauss upwind; div(((rho*nuEff)*dev2(T(grad(U))))) Gauss linear; }\n'
+            f'laplacianSchemes {{ default {settings["fluid_laplacian"]}; }}\n'
+            'interpolationSchemes { default linear; }\n'
+            'snGradSchemes { default limited 0.5; }\n'
+            'fluxRequired { default no; p_rgh; }\n'
+            'wallDist { method meshWave; }')
+
+
+def fluid_solution(settings):
+    return ('solvers {\n'
+            'p_rgh { solver GAMG; tolerance 1e-9; relTol 0.01; smoother GaussSeidel; }\n'
+            '"(U|h|k|epsilon|omega|rho)" { solver PBiCGStab; preconditioner DILU; tolerance 1e-9; relTol 0.01; }\n'
+            '}\n'
+            'SIMPLE { momentumPredictor yes; nNonOrthogonalCorrectors 1; }\n'
+            f'relaxationFactors {{ fields {{ p_rgh {settings["pressure_relaxation"]}; rho 1; }} '
+            f'equations {{ U {settings["velocity_relaxation"]}; h {settings["fluid_enthalpy_relaxation"]}; '
+            'k 0.7; epsilon 0.7; omega 0.7; } }')
+
+
+def solid_schemes(settings):
+    return (f'ddtSchemes {{ default steadyState; }} gradSchemes {{ default {settings["solid_gradient"]}; }} '
+            'divSchemes { default none; } laplacianSchemes { default Gauss linear corrected; } '
+            'interpolationSchemes { default linear; } snGradSchemes { default corrected; }')
+
+
+def solid_solution(settings):
+    return ('solvers { h { solver PCG; preconditioner DIC; tolerance 1e-10; relTol 0.001; } } '
+            f'SIMPLE {{ nNonOrthogonalCorrectors {settings["solid_nonorthogonal_correctors"]}; }} '
+            f'relaxationFactors {{ equations {{ h {settings["solid_enthalpy_relaxation"]}; }} }}')
+
+
+def convert_mesh(case, mesh):
+    """gmshToFoam then splitMeshRegions; root schemes must exist before splitting."""
+    write_dictionary(case / 'system/fvSchemes',
+                     'ddtSchemes { default steadyState; } gradSchemes { default Gauss linear; } divSchemes { default none; } '
+                     'laplacianSchemes { default Gauss linear corrected; } interpolationSchemes { default linear; } '
+                     'snGradSchemes { default corrected; }')
+    write_dictionary(case / 'system/fvSolution', '')
+    run_tool(['gmshToFoam', str(mesh), '-case', str(case)], case, case / 'log.gmshToFoam')
+    run_tool(['splitMeshRegions', '-cellZones', '-overwrite', '-case', str(case)], case, case / 'log.splitMeshRegions')
+    boundary = case / 'constant/solid/polyMesh/boundary'
     boundary.write_text(re.sub(r'type\s+patch;', 'type wall;', boundary.read_text()))
-    write(case/'constant/regionProperties','regions (fluid (fluid) solid (solid));')
-    write(case/'constant/g','dimensions [0 1 -2 0 0 0 0]; value (0 0 0);','uniformDimensionedVectorField')
-    wp=basis['water_properties']
-    rho,cp,mu,kappa=[wp[k] for k in ['density_kg_m3','cp_J_kg_K','dynamic_viscosity_Pa_s','conductivity_W_m_K']]
-    # These are explicit baseline constants; property provenance is in thermal report.
-    write(case/'constant/fluid/thermophysicalProperties',f'''thermoType {{ type heRhoThermo; mixture pureMixture; transport const; thermo hConst; equationOfState rhoConst; specie specie; energy sensibleEnthalpy; }}
-mixture {{ specie {{ molWeight 18.015; }} equationOfState {{ rho {rho}; }} thermodynamics {{ Cp {cp}; Hf 0; }} transport {{ mu {mu}; Pr {mu*cp/kappa}; }} }}''')
-    copper=basis['copper_properties']
-    write(case/'constant/solid/thermophysicalProperties',f"""thermoType {{ type heSolidThermo; mixture pureMixture; transport constIso; thermo hConst; equationOfState rhoConst; specie specie; energy sensibleEnthalpy; }}
-mixture {{ specie {{ molWeight 63.546; }} equationOfState {{ rho {copper['density_kg_m3']}; }} thermodynamics {{ Cp {copper['cp_J_kg_K']}; Hf 0; }} transport {{ kappa {copper['conductivity_W_m_K']}; }} }}""")
-    write(case/'constant/fluid/turbulenceProperties','simulationType RAS; RAS { RASModel kEpsilon; turbulence on; printCoeffs on; }')
-    for region in ['fluid','solid']:
-        write(case/f'constant/{region}/radiationProperties','radiation off; radiationModel none;')
-        write(case/f'system/{region}/fvSchemes','''ddtSchemes { default steadyState; }
-gradSchemes { default Gauss linear; }
-divSchemes { default none; div(phi,U) bounded Gauss linearUpwind grad(U); div(phi,h) bounded Gauss upwind; div(phi,K) Gauss upwind; div(phi,k) bounded Gauss upwind; div(phi,epsilon) bounded Gauss upwind; div(((rho*nuEff)*dev2(T(grad(U))))) Gauss linear; }
-laplacianSchemes { default Gauss linear limited 0.5; }
-interpolationSchemes { default linear; }
-snGradSchemes { default limited 0.5; }
-fluxRequired { default no; p_rgh; }''')
-        write(case/f'system/{region}/fvSolution','''solvers {
-p_rgh { solver GAMG; tolerance 1e-9; relTol 0.01; smoother GaussSeidel; }
-"(U|h|k|epsilon|rho)" { solver PBiCGStab; preconditioner DILU; tolerance 1e-9; relTol 0.01; }
-}
-SIMPLE { momentumPredictor yes; nNonOrthogonalCorrectors 1; }
-relaxationFactors { fields { p_rgh 0.3; rho 1; } equations { U 0.7; h 0.9; k 0.7; epsilon 0.7; } }''')
-    write(case/'system/solid/fvSchemes','ddtSchemes { default steadyState; } gradSchemes { default leastSquares; } divSchemes { default none; } laplacianSchemes { default Gauss linear corrected; } interpolationSchemes { default linear; } snGradSchemes { default corrected; }')
-    write(case/'system/solid/fvSolution', 'solvers { h { solver PCG; preconditioner DIC; tolerance 1e-10; relTol 0.001; } } SIMPLE { nNonOrthogonalCorrectors 3; } relaxationFactors { equations { h 0.9; } }')
-    def field(region,name,dim,value,bcs,vector=False):
-        write(case/f'0/{region}/{name}',f'dimensions {dim};\ninternalField uniform {value};\nboundaryField {{\n'+ '\n'.join(f'{p} {{ {b} }}' for p,b in bcs.items())+'\n}', 'volVectorField' if vector else 'volScalarField')
-    coupled=lambda method:f'type compressible::turbulentTemperatureCoupledBaffleMixed; Tnbr T; kappaMethod {method}; value uniform {tin};'
-    # Names created by splitMeshRegions are mappedWall and retain reciprocal region information.
-    wall='fluid_to_solid'; uwall='type noSlip;'
-    speed=mdot/(rho*cfg['inlet_area_m2']); kval=1.5*(speed*cfg.get('turbulence_intensity',.05))**2; length=.07*cfg['hydraulic_diameter_m']; eps=.09**.75*kval**1.5/length
-    velocity='('+ ' '.join(str(speed*x) for x in direction)+')'
-    field('fluid','U','[0 1 -1 0 0 0 0]',velocity,{'inlet':f'type flowRateInletVelocity; massFlowRate constant {mdot}; rho rho; rhoInlet {rho}; value uniform {velocity};','outlet':'type zeroGradient;',wall:uwall},True)
-    for name in ['p','p_rgh']:
-        field('fluid',name,'[1 -1 -2 0 0 0 0]',pout,{'inlet':'type zeroGradient;' if name=='p_rgh' else f'type calculated; value uniform {pout};','outlet':f'type fixedValue; value uniform {pout};' if name=='p_rgh' else f'type calculated; value uniform {pout};',wall:f'type fixedFluxPressure; value uniform {pout};' if name=='p_rgh' else f'type calculated; value uniform {pout};'})
-    field('fluid','T','[0 0 0 1 0 0 0]',tin,{'inlet':f'type fixedValue; value uniform {tin};','outlet':'type zeroGradient;',wall:coupled('fluidThermo')})
-    for name,value,dim,walltype in [('k',kval,'[0 2 -2 0 0 0 0]','kqRWallFunction'),('epsilon',eps,'[0 2 -3 0 0 0 0]','epsilonWallFunction'),('nut',0,'[0 2 -1 0 0 0 0]','nutkWallFunction'),('alphat',0,'[1 -1 -1 0 0 0 0]','compressible::alphatJayatillekeWallFunction')]:
-        field('fluid',name,dim,value,{'inlet':f'type {"fixedValue" if name in ("k","epsilon") else "calculated"}; value uniform {value};','outlet':f'type {"zeroGradient" if name in ("k","epsilon") else "calculated"}; value uniform {value};',wall:f'type {walltype}; value uniform {value};'})
-    field('solid','T','[0 0 0 1 0 0 0]',tin,{'heated':f'type externalWallHeatFluxTemperature; mode flux; q uniform {flux}; kappaMethod solidThermo; value uniform {tin};','outerWalls':'type zeroGradient;','solid_to_fluid':coupled('solidThermo')})
-    field('solid','p','[1 -1 -2 0 0 0 0]',pout,{p:f'type calculated; value uniform {pout};' for p in ['heated','outerWalls','solid_to_fluid']})
-    inputs=[mesh,props,config,Path(__file__),Path(cfg['geometry_manifest'])]
-    hashes={str(p.resolve()):hashlib.sha256(p.read_bytes()).hexdigest() for p in inputs}
-    (case/'manifest.json').write_text(json.dumps({'input_sha256':hashes,'solver':'OpenCFD v2412 patch260127 chtMultiRegionSimpleFoam','geometry_changed':False,'pressure_definition':'p and p_rgh in absolute Pa; g=0','configuration':cfg,'limitations':['Constant properties liquid enthalpy cpT model; single phase only','Uniform inlet; no external fittings or reservoir','RANS wall functions require near-wall review','No experimental validation'],'simulation_executed':False,'numerically_verified':False},indent=2))
-    (case/'case.foam').touch()
-    settings=dict(cfg,solver='OpenCFD v2412 chtMultiRegionSimpleFoam',rho_kg_m3=rho,cp_J_kg_K=cp,mu_Pa_s=mu,k_W_m_K=kappa,gravity_m_s2=[0,0,0],thermal_property_input=str(props),turbulence_length_scale_m=length,wall_model='standard kEpsilon + Jayatilleke thermal wall function',iterations=iterations)
-    (case/'baseline-settings.json').write_text(json.dumps(settings,indent=2))
 
-if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('case',type=Path);p.add_argument('mesh',type=Path);p.add_argument('--properties',type=Path,required=True);p.add_argument('--config',type=Path,required=True);p.add_argument('--iterations',type=int,default=1500);a=p.parse_args();build(a.case,a.mesh,a.properties,a.iterations,a.config)
+
+def build(case, mesh, basis, settings, geometry_manifest=None):
+    case, mesh = Path(case).resolve(), Path(mesh).resolve()
+    metadata_path = mesh.with_suffix('.json')
+    metadata = json.loads(metadata_path.read_text())
+    if metadata['mesh_sha256'] != digest(mesh):
+        raise ValueError('Mesh hash differs from its metadata')
+    if geometry_manifest is not None and metadata['geometry_manifest_sha256'] != digest(geometry_manifest):
+        raise ValueError('Mesh does not belong to this geometry manifest')
+    required = ['inlet_temperature_K', 'outlet_absolute_pressure_Pa', 'mass_flow_kg_s', 'heat_flux_W_m2',
+                'inlet_area_m2', 'inlet_direction', 'hydraulic_diameter_m', 'iterations', 'turbulence_model',
+                'turbulence_intensity', 'solid_gradient', 'solid_nonorthogonal_correctors', 'solid_enthalpy_relaxation',
+                'fluid_enthalpy_relaxation', 'velocity_relaxation', 'pressure_relaxation', 'fluid_laplacian',
+                'write_interval', 'field_minmax_interval']
+    missing = [key for key in required if key not in settings]
+    if missing:
+        raise ValueError('Missing case settings: ' + ', '.join(missing))
+    tin, pout, mdot, flux = (settings[k] for k in ('inlet_temperature_K', 'outlet_absolute_pressure_Pa', 'mass_flow_kg_s', 'heat_flux_W_m2'))
+    fluid = basis['fluid_properties']
+    rho = fluid['density_kg_m3']
+    speed = mdot / (rho * settings['inlet_area_m2'])
+    direction = settings['inlet_direction']
+    turbulence = turbulence_setup(settings['turbulence_model'], speed, settings['turbulence_intensity'],
+                                  .07 * settings['hydraulic_diameter_m'])
+    fluid_thermo = fluid_dictionary(basis, tin)
+    case.mkdir(parents=True, exist_ok=False)
+    write_dictionary(case / 'system/controlDict', control_dict(settings))
+    convert_mesh(case, mesh)
+    write_dictionary(case / 'constant/regionProperties', 'regions (fluid (fluid) solid (solid));')
+    write_dictionary(case / 'constant/g', 'dimensions [0 1 -2 0 0 0 0]; value (0 0 0);', 'uniformDimensionedVectorField')
+    write_dictionary(case / 'constant/fluid/thermophysicalProperties', fluid_thermo)
+    write_dictionary(case / 'constant/solid/thermophysicalProperties', solid_dictionary(basis))
+    write_dictionary(case / 'constant/fluid/turbulenceProperties',
+                     f'simulationType RAS; RAS {{ RASModel {turbulence["RASModel"]}; turbulence on; printCoeffs on; }}')
+    for region in ('fluid', 'solid'):
+        write_dictionary(case / f'constant/{region}/radiationProperties', 'radiation off; radiationModel none;')
+    write_dictionary(case / 'system/fluid/fvSchemes', fluid_schemes(settings))
+    write_dictionary(case / 'system/fluid/fvSolution', fluid_solution(settings))
+    write_dictionary(case / 'system/solid/fvSchemes', solid_schemes(settings))
+    write_dictionary(case / 'system/solid/fvSolution', solid_solution(settings))
+    wall = 'fluid_to_solid'
+    velocity = vector_text(speed * x for x in direction)
+    coupled = lambda method: f'type compressible::turbulentTemperatureCoupledBaffleMixed; Tnbr T; kappaMethod {method}; value uniform {tin};'
+    write_field(case, 'fluid', 'U', '[0 1 -1 0 0 0 0]', velocity, {
+        'inlet': f'type flowRateInletVelocity; massFlowRate constant {mdot}; rho rho; rhoInlet {rho}; value uniform {velocity};',
+        'outlet': 'type zeroGradient;', wall: 'type noSlip;'}, vector=True)
+    write_field(case, 'fluid', 'p', '[1 -1 -2 0 0 0 0]', pout,
+                {patch: f'type calculated; value uniform {pout};' for patch in ('inlet', 'outlet', wall)})
+    write_field(case, 'fluid', 'p_rgh', '[1 -1 -2 0 0 0 0]', pout, {
+        'inlet': 'type zeroGradient;', 'outlet': f'type fixedValue; value uniform {pout};',
+        wall: f'type fixedFluxPressure; value uniform {pout};'})
+    write_field(case, 'fluid', 'T', '[0 0 0 1 0 0 0]', tin, {
+        'inlet': f'type fixedValue; value uniform {tin};', 'outlet': 'type zeroGradient;', wall: coupled('fluidThermo')})
+    for name, value, dimensions, wall_type in turbulence['fields']:
+        transported = name in ('k', 'epsilon', 'omega')
+        write_field(case, 'fluid', name, dimensions, value, {
+            'inlet': f'type {"fixedValue" if transported else "calculated"}; value uniform {value};',
+            'outlet': f'type {"zeroGradient" if transported else "calculated"}; value uniform {value};',
+            wall: f'type {wall_type}; value uniform {value};'})
+    write_field(case, 'solid', 'T', '[0 0 0 1 0 0 0]', tin, {
+        'heated': f'type externalWallHeatFluxTemperature; mode flux; q uniform {flux}; kappaMethod solidThermo; value uniform {tin};',
+        'outerWalls': 'type zeroGradient;', 'solid_to_fluid': coupled('solidThermo')})
+    write_field(case, 'solid', 'p', '[1 -1 -2 0 0 0 0]', pout,
+                {patch: f'type calculated; value uniform {pout};' for patch in ('heated', 'outerWalls', 'solid_to_fluid')})
+    if geometry_manifest is not None:
+        shutil.copyfile(geometry_manifest, case / 'geometry-manifest.json')
+    (case / 'basis.json').write_text(json.dumps(basis, indent=2) + '\n')
+    settings = dict(settings, wall_model=turbulence['description'], inlet_speed_m_s=speed,
+                    openfoam_version=openfoam_version(), transport_polynomials=basis.get('transport_polynomials'),
+                    transport_model=basis.get('transport_model', 'constant'))
+    (case / 'settings.json').write_text(json.dumps(settings, indent=2) + '\n')
+    sources = {name: digest(Path(__file__).with_name(name)) for name in ('cht_case.py', 'transport.py', 'turbulence.py')}
+    manifest = {'schema_version': 2, 'solver': settings['solver'], 'openfoam_version': settings['openfoam_version'],
+                'input_sha256': {'mesh': digest(mesh), 'mesh_metadata': digest(metadata_path),
+                                 'geometry_manifest': digest(geometry_manifest) if geometry_manifest else None,
+                                 'basis': digest(case / 'basis.json'), 'settings': digest(case / 'settings.json')},
+                'builder_sha256': sources, 'pressure_definition': 'p and p_rgh are absolute static pressure in Pa; g = 0',
+                'simulation_executed': False, 'execution_status': 'not_started', 'numerically_verified': False}
+    (case / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    (case / 'case.foam').touch()
+    return manifest
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('case', type=Path)
+    parser.add_argument('mesh', type=Path)
+    parser.add_argument('--basis', type=Path, required=True, help='material basis JSON')
+    parser.add_argument('--settings', type=Path, required=True, help='complete case settings JSON')
+    parser.add_argument('--geometry', type=Path, help='geometry manifest to bind and copy into the case')
+    args = parser.parse_args()
+    build(args.case, args.mesh, json.loads(args.basis.read_text()), json.loads(args.settings.read_text()), args.geometry)
+    print(json.dumps({'case': str(args.case), 'built': True}))
+
+
+if __name__ == '__main__':
+    main()

@@ -1,12 +1,5 @@
-# Requirements specialist notes
+# Requirements notes
 
-- 2026-09-17, initial requirements-review implementation: the local review UI uses
-  Three.js 0.180.0 and source-import face IDs; bind every selection to the recorded
-  import fingerprint. No boundary-role assignment is inferred from cap discovery.
-- Initial scope is one material, one coolant, steady operation and uniform heat
-  input on fixed geometry. An open passage may have no source CAD cap face;
-  purple virtual port caps are explicit proposals for CAD verification.
-- CAD cannot supply heat magnitude, actual plumbing direction or operating inputs.
-  Only the user may approve the saved, current visual and numerical review. UI
-  edits clear confirmation; the server must independently enforce hashes,
-  revisions, completeness and approval when producing a CAD handoff.
+- Selections bind to the import fingerprint; a re-import invalidates IDs and approval.
+- Concentric loops appear at tube ends (Ø8 bore and Ø10 outer wall): the user must pick the inner loop. The extractor rejects a cap that is not the passage opening.
+- Only the user approves, in the browser. Edits clear approval.

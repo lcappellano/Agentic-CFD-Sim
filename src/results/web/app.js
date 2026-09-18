@@ -27,7 +27,10 @@ function update() {
     obj.userData.probeable=obj.visible && has && (s.region!=='solid'||Number($('opacity').value)>0.02);
     obj.material.opacity=s.region==='solid'?Number($('opacity').value):1;
     obj.material.transparent=obj.material.opacity<1; obj.material.depthWrite=obj.material.opacity>=1;
-    obj.userData.wire.visible=$('mesh').checked;
+    if($('mesh').checked && !obj.userData.wire) {
+      const wire=new THREE.LineSegments(new THREE.WireframeGeometry(obj.geometry),new THREE.LineBasicMaterial({color:0x263b48,transparent:true,opacity:0.16}));obj.add(wire);obj.userData.wire=wire;
+    }
+    if(obj.userData.wire)obj.userData.wire.visible=$('mesh').checked;
     if(obj.visible && has && obj.material.opacity>0.02) visible.push(obj);
   }
   let min=Infinity,max=-Infinity;
@@ -87,10 +90,10 @@ function renderProbe() {
   marker.position.set(...point);marker.visible=true;render();
 }
 function addMesh(s,kind) {
-  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(s.positions_mm,3));geometry.setAttribute('color',new THREE.Float32BufferAttribute(new Float32Array(s.positions_mm.length),3));geometry.computeVertexNormals();
+  const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(s.positions_mm,3));geometry.setAttribute('color',new THREE.Float32BufferAttribute(new Float32Array(s.positions_mm.length),3));
   const material=new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:1});
   const obj=new THREE.Mesh(geometry,material);obj.userData={source:s,kind};
-  const wire=new THREE.LineSegments(new THREE.WireframeGeometry(geometry),new THREE.LineBasicMaterial({color:0x263b48,transparent:true,opacity:0.16}));obj.add(wire);obj.userData.wire=wire;scene.add(obj);objects.push(obj);
+  scene.add(obj);objects.push(obj);
 }
 function summaryEntry(label,value) { const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=String(value??'Unavailable');$('summary').append(dt,dd); }
 function setup() {
@@ -148,6 +151,21 @@ async function main() {
   summaryEntry('Temperature limit',Number.isFinite(data.temperature_limit_K)?`${(data.temperature_limit_K-273.15).toFixed(2)} °C`:'Unavailable');
   summaryEntry('Passage pressure drop',Number.isFinite(s.pressure_drop_Pa)?`${(s.pressure_drop_Pa/100000).toFixed(5)} bar`:'Unavailable');
   summaryEntry('Mass flow',Number.isFinite(m.outletMass)?`${m.outletMass.toFixed(4)} kg/s`:'Unavailable');
+  if(data.temperature_extrema_K) {
+    const e=data.temperature_extrema_K;
+    summaryEntry('Copper maximum',`${(e.solid.max-273.15).toFixed(2)} °C`);
+    summaryEntry('Water cell maximum',`${(e.fluid.internal_max-273.15).toFixed(2)} °C`);
+    summaryEntry('Water-side wall maximum',Number.isFinite(m.wettedMax)?`${(m.wettedMax-273.15).toFixed(2)} °C`:'Unavailable');
+    summaryEntry('Mixed outlet water',Number.isFinite(m.outletTemperature)?`${(m.outletTemperature-273.15).toFixed(2)} °C`:'Unavailable');
+  }
+  if(data.operating_point) {
+    $('pressure-unit').value='absolute';
+    const op=data.operating_point;
+    summaryEntry('Specified flow',`${op.flow_L_min} L/min`);
+    summaryEntry('Specified outlet pressure',`${(op.outlet_absolute_pressure_Pa/100000).toFixed(2)} bar absolute`);
+    summaryEntry('Part total-pressure difference',Number.isFinite(s.total_pressure_drop_Pa)?`${(s.total_pressure_drop_Pa/100000).toFixed(3)} bar`:'Unavailable');
+    if(Number.isFinite(op.differential_target_Pa))summaryEntry('Pressure-difference target',`${(op.differential_target_Pa/100000).toFixed(2)} bar (comparison only)`);
+  }
   summaryEntry('Acceptance',typeof data.acceptance==='string'?data.acceptance:data.acceptance?.status?.replaceAll('_',' '));
   summaryEntry('Numerical criteria',data.acceptance?.numerical_criteria);
   summaryEntry('Experimental validation',data.acceptance?.experimental_validation||'Not experimentally validated');

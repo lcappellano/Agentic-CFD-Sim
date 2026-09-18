@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "note": "Sizes given per inlet hydraulic diameter scale with the part; absolute *_m keys override. Boxes are spec overrides because they are geometry specific.",
+  "profiles": {
+    "tet-coarse": {
+      "description": "Isotropic tetrahedra, interface-distance refinement; first look at a new part.",
+      "wall_size_per_diameter": 0.05, "bulk_size_per_diameter": 0.2, "transition_per_diameter": 0.2,
+      "curvature_points": 24, "refinement_boxes": []
+    },
+    "tet-medium": {
+      "description": "Manifold-channel resolution used for the reviewed manifold cases.",
+      "wall_size_per_diameter": 0.0375, "bulk_size_per_diameter": 0.1875, "transition_per_diameter": 0.1875,
+      "curvature_points": 24, "refinement_boxes": []
+    },
+    "tet-fine": {
+      "description": "0.75x of tet-medium for paired mesh sensitivity.",
+      "wall_size_per_diameter": 0.028, "bulk_size_per_diameter": 0.14, "transition_per_diameter": 0.1875,
+      "curvature_points": 24, "refinement_boxes": []
+    },
+    "tet-test": {
+      "description": "Very coarse mesh for end-to-end regression tests only.",
+      "wall_size_per_diameter": 0.25, "bulk_size_per_diameter": 0.6, "transition_per_diameter": 0.4,
+      "curvature_points": 12, "refinement_boxes": []
+    }
+  }
+}

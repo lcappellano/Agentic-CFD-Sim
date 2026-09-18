@@ -107,7 +107,7 @@ def prepare(root, name, label):
     source, raw, spec = read_spec(root, name)
     approved_package = None
     if spec.get('requirements_review') is not None:
-        from requirements.review import verify_handoff
+        from src.requirements.review import verify_handoff
         receipt = spec['requirements_review']
         if not isinstance(receipt, dict) or not isinstance(receipt.get('manifest'), str):
             raise ValueError('requirements_review must identify an approved handoff manifest.')

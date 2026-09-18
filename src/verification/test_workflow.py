@@ -12,10 +12,11 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 spec = importlib.util.spec_from_file_location("workbench_under_test", ROOT / "tools/workbench.py")
 workbench = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(workbench)
-import workflow
+from src import workflow
 
 
 class IntakeTests(unittest.TestCase):
@@ -160,7 +161,7 @@ class RecorderTests(unittest.TestCase):
 
     def test_second_job_lock_is_rejected(self):
         with workbench.job_lock():
-            with self.assertRaisesRegex(RuntimeError, "Another recorded job"):
+            with self.assertRaisesRegex(RuntimeError, "Another compute job"):
                 with workbench.job_lock():
                     self.fail("Concurrent recorder lock was granted")
 

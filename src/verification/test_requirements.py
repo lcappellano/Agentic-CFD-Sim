@@ -11,10 +11,10 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "src"))
-from requirements import review
-from requirements import server
-import workflow
+sys.path.insert(0, str(ROOT))
+from src.requirements import review
+from src.requirements import server
+from src import workflow
 
 
 class RequirementsTests(unittest.TestCase):

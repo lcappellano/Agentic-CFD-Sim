@@ -8,8 +8,8 @@ import argparse
 import json
 import math
 from pathlib import Path
-from step_preview import digest
-from prepare_demo_baseline import DEMO_SHA
+from src.foam.hashing import digest
+from legacy.demo.prepare_demo_baseline import DEMO_SHA
 
 
 def build(geometry, output, level, fluid_radial=None):

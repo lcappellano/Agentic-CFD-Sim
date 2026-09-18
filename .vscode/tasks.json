@@ -1,17 +1,19 @@
 {
   "version": "2.0.0",
   "tasks": [
-    {"label": "Workbench: import STEP for requirements review", "type": "process", "command": "python3", "args": ["tools/workbench.py", "job", "--label", "requirements-import", "--input", "${input:stepPath}", "--input", "project.json", "--input", "src/cad/step_preview.py", "--input", "src/cad/vendor/gmsh.py", "--input", "src/requirements/review.py", "--input", "tools/workbench.py", "--", "python3", "tools/workbench.py", "review-import", "--step", "${input:stepPath}"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
-    {"label": "Workbench: serve requirements viewer", "type": "process", "command": "python3", "args": ["tools/workbench.py", "review-serve", "${input:reviewPath}"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
-    {"label": "Workbench: check request inputs", "type": "process", "command": "python3", "args": ["tools/workbench.py", "check"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
-    {"label": "Workbench: prepare request only", "type": "process", "command": "python3", "args": ["tools/workbench.py", "job", "--label", "prepare", "--input", "project.json", "--input", "src/workflow.py", "--input", "tools/workbench.py", "--", "python3", "tools/workbench.py", "prepare"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
-    {"label": "Workbench: inspect local tools", "type": "process", "command": "python3", "args": ["tools/workbench.py", "doctor"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
-    {"label": "Workbench: smoke test", "type": "process", "command": "python3", "args": ["tools/workbench.py", "job", "--label", "smoke", "--input", "examples/smoke.py", "--", "python3", "examples/smoke.py"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
-    {"label": "Workbench: serve results viewer", "type": "process", "command": ".venv/bin/python", "args": ["tools/workbench.py", "results-serve", "${input:resultsPath}", "--port", "8766"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []}
+    {"label": "Workbench: doctor", "type": "process", "command": ".venv/bin/python", "args": ["tools/workbench.py", "doctor"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
+    {"label": "Workbench: import STEP for review", "type": "process", "command": ".venv/bin/python", "args": ["tools/workbench.py", "review-import", "--step", "${input:stepPath}"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
+    {"label": "Workbench: serve requirements viewer", "type": "process", "command": ".venv/bin/python", "args": ["tools/workbench.py", "review-serve", "${input:reviewPath}"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
+    {"label": "Workbench: simulate spec", "type": "process", "command": ".venv/bin/python", "args": ["tools/workbench.py", "simulate", "${input:specPath}"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
+    {"label": "Workbench: run status", "type": "process", "command": ".venv/bin/python", "args": ["tools/workbench.py", "status", "${input:runPath}"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
+    {"label": "Workbench: serve results viewer", "type": "process", "command": ".venv/bin/python", "args": ["tools/workbench.py", "results-serve", "${input:resultsPath}", "--port", "8766"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
+    {"label": "Workbench: tests", "type": "process", "command": ".venv/bin/python", "args": ["tools/workbench.py", "test"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []}
   ],
   "inputs": [
     {"id": "stepPath", "type": "promptString", "description": "STEP path relative to workspace", "default": "inputs/part.step"},
-    {"id": "reviewPath", "type": "promptString", "description": "Requirements review directory printed by import", "default": "runs/20260917T215831-requirements-demo-634b5abf"},
-    {"id": "resultsPath", "type": "promptString", "description": "Results export directory printed by results-export", "default": "runs/20260917T231138-demo-baseline-7716aa5b/results-viewer/v1"}
+    {"id": "reviewPath", "type": "promptString", "description": "Review directory printed by review-import", "default": "runs/"},
+    {"id": "specPath", "type": "promptString", "description": "Spec JSON", "default": "specs/example-manifold-40lpm.json"},
+    {"id": "runPath", "type": "promptString", "description": "Run directory", "default": "runs/"},
+    {"id": "resultsPath", "type": "promptString", "description": "Export directory under runs/<run>/results-viewer", "default": "runs/"}
   ]
 }

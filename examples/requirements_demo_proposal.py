@@ -3,8 +3,8 @@ import argparse
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from requirements import review
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.requirements import review
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('review_directory')

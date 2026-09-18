@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "note": "Screening tolerances applied by run_bounded and the audits. Profiles are project defaults, not validation standards.",
+  "profiles": {
+    "project-screening": {
+      "description": "Default numerical and phase screens for steady single-phase CHT.",
+      "mass_balance_relative": 0.001, "energy_balance_relative": 0.01, "interface_power_relative": 0.01,
+      "heat_input_relative": 0.001, "final_window_iterations": 100, "temperature_range_K": 0.1,
+      "pressure_drop_range_relative": 0.01, "initial_residual_max": 1e-05, "linear_final_residual_max": 1e-07,
+      "mesh_temperature_difference_K": 1, "mesh_heated_rise_relative": 0.05, "mesh_pressure_drop_relative": 0.05,
+      "local_liquid_saturation_margin_K": 10, "wall_function_nominal_yplus": [30, 300]
+    },
+    "test-loose": {
+      "description": "Loose gates so the end-to-end regression fixture completes quickly; never for engineering results.",
+      "mass_balance_relative": 0.05, "energy_balance_relative": 0.5, "interface_power_relative": 0.5,
+      "heat_input_relative": 0.01, "final_window_iterations": 20, "temperature_range_K": 50,
+      "pressure_drop_range_relative": 1.0, "initial_residual_max": 1.0, "linear_final_residual_max": 1.0,
+      "mesh_temperature_difference_K": 50, "mesh_heated_rise_relative": 1.0, "mesh_pressure_drop_relative": 1.0,
+      "local_liquid_saturation_margin_K": 0, "wall_function_nominal_yplus": [0, 1e9]
+    }
+  }
+}

@@ -7,9 +7,9 @@ import tempfile
 import threading
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'src'))
-from requirements import review
-from requirements.server import make_server
+sys.path.insert(0, str(ROOT))
+from src.requirements import review
+from src.requirements.server import make_server
 from playwright.sync_api import sync_playwright, expect
 
 

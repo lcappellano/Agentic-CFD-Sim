@@ -12,12 +12,10 @@ import math
 from pathlib import Path
 import sys
 
+from src.foam.hashing import digest
+
 HERE = Path(__file__).resolve().parent
 ADAPTER_VERSION = "1"
-
-
-def digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def backend():

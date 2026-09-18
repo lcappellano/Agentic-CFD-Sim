@@ -11,8 +11,8 @@ import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from cfd.summarize_demo import numbers, read_boundary
-from verification.audit_demo_mesh import body
+from legacy.demo.summarize_demo import numbers, read_boundary
+from legacy.demo.audit_demo_mesh import body
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt

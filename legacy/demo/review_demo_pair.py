@@ -4,10 +4,10 @@ import hashlib
 import json
 import sys
 from pathlib import Path
-from audit_demo_mesh import audit as audit_mesh
-from audit_demo_fields import audit as audit_fields
+from legacy.demo.audit_demo_mesh import audit as audit_mesh
+from legacy.demo.audit_demo_fields import audit as audit_fields
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
-from src.thermal.demo_estimate import saturation_temperature
+from legacy.demo.demo_estimate import saturation_temperature
 
 
 def review(run, names):

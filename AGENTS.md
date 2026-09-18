@@ -1,71 +1,42 @@
 # Cooling agent workbench
 
-The main Codex conversation is the manager. The user speaks to the manager;
-specialists return their work to it. This repository is a starter framework.
-It does not yet implement arbitrary STEP-to-CHT automation.
+The main conversation is the manager. Specialists (`requirements`, `cad`,
+`cfd`, `thermal`, `verification`) are spawned only when a pipeline stage fails
+or a decision needs discipline judgment. Read this file, `docs/pipeline.md`,
+and `memory/manager.md` at session start; nothing else is required.
 
-## Manager responsibilities
+## Running a part
 
-- Act as the project manager and delegate bounded tasks to the configured specialists.
-- At the start of new sessions read README.md, docs/contracts.md, project.json, and memory/manager. md.
-- Use actual specialized subagents named cad, cfd, thermal, and verification
-  for bounded work in their disciplines when those agents are available.
-  This instruction requests delegation. Do not merely simulate multiple roles
-  in one answer. If the installed client cannot spawn them, report that limitation.
-- Assign an objective, input versions, owned paths, acceptance criteria, and a
-  bounded task. Delegate independent work concurrently; honor dependencies.
-- Maintain decisions and next steps in memory/manager.md and each run's plan.md.
-- Own integration and shared infrastructure. Assign one writer to any shared file.
-- Keep model and access settings inherited unless the user asks to change them.
-- Execute CAD, meshing, solvers, and postprocessing on this computer. Use local
-  Codex execution. Hosted language-model inference still uses the account allowance.
-- Build reusable tools in src/. Use tools/workbench.py job to execute and record
-  tasks. The starter runner allows only one job at a time to avoid resource contention.
-- Use scripts for parameter sweeps. Do not call a model for each solver iteration.
-- Keep full fields and logs on disk. Return small summaries to the manager.
-- After meaningful milestones, update the current status, verified results, unresolved issues, and next steps.
-- If major learning in procedure or setup are learned through interacting with the user come up with instructions that improve the work flow and add them here to imrpove yourself. 
+1. Put the STEP in `inputs/`. `tools/workbench.py review-import --step ...`,
+   serve the viewer, and let the **user** select ports and heated faces and
+   approve. Never approve for the user. `review-handoff` writes the package.
+2. Write a spec in `specs/<part>.json` (see `docs/pipeline.md`; ten lines is typical).
+3. `tools/workbench.py simulate specs/<part>.json`, then `status runs/<run>`.
+4. Read `state.json`/`report.md`. Act on the stop reason. Do not read solver
+   logs unless a stage failed; the stage log is `runs/<run>/logs/<stage>.log`.
 
-## Engineering workflow
+## Rules
 
-1. Discover the local environment using the doctor command. Do not assume a
-   missing solver is installed. Identify tool versions before writing adapters.
-2. Resolve the task's boundary conditions, materials, objectives, search bounds,
-   heated faces, and any allowed geometry changes. Record unknowns explicitly.
-3. Prepare and verify geometry and build fast thermal/hydraulic estimates.
-4. Construct and verify one baseline case before launching a parameter sweep.
-5. Search operating conditions on fixed geometry first. A design iteration needs
-   authorization in the user's request and a documented reason for the change.
-6. Review the numerical and physical evidence before accepting an operating point.
-7. Deliver source, run settings, commands, logs, results, and unresolved limits.
+- Change the spec, a profile in `src/pipeline/profiles/`, or a module in `src/`.
+  Never write scripts inside `runs/` and never edit generated case files by hand.
+- A recurring fix belongs in code: add or adjust a profile, extend a material,
+  widen a check. Add a test next to it. `tools/workbench.py test` must pass.
+- One compute job per machine; the driver holds the lock. Do not poll a
+  running solve with the model; wait for the driver to return.
+- Report `state.case.status` verbatim: `diagnostic`, `numerically_screened`,
+  or `accepted`. Only a human writes `accepted` (a `decision.json` in the run).
+- Keep memory files short: one bullet per reusable lesson with the run that
+  produced it. Project narrative goes in the run's `report.md`.
+- Use `.venv/bin/python`. Never `sudo pip` or global installs. Pin new
+  dependencies in `requirements-*.txt`.
+- Do not overwrite input CAD; do not change geometry unless the user allows it.
 
-Do not silently apply project.example.json as a real simulation specification.
-Do not fabricate tool output or present an estimate as an executed CFD solution.
-If no solution is found, state the explored bounds; do not infer impossibility.
-Do not overwrite input CAD. Use new versioned output directories.
-Respect existing user authorization; do not add approval gates for routine work.
+## Manager workflow when something fails
 
-## Persistent learning
-
-Store short, evidence-backed notes in memory/<role>.md. Include the originating
-run, tool version, and applicability. Project-specific facts belong in run records.
-Fresh agent sessions should load these notes, not entire historical transcripts.
-
-## First implementation milestone
-
-Create a reproducible benchmark geometry with a known fluid passage, extract the
-fluid and solid regions, execute one local CHT case, and produce a reviewed report.
-Then adapt the verified pipeline to the user's STEP file. Pin dependencies once
-the actual local environment is known. Document unsupported geometries.
-
-## Dependency management
-- Use the project-root .venv for project Python scripts and packages.
-- Create it with python3 -m venv .venv if missing.
-- Invoke .venv/bin/python explicitly, using an absolute path when
-  running commands from another directory.
-- Install Python packages through .venv/bin/python -m pip.
-- Never use sudo pip, global pip installs, or --break-system-packages.
-- Record dependencies and validated versions in a requirements file.
-- Exclude .venv/ from Git.
-- The manager owns dependency installation; specialists request additions
-  so multiple agents do not modify the environment simultaneously.
+| stage failed | first look | who |
+| --- | --- | --- |
+| handoff | approval missing or edited after approval | requirements + user |
+| geometry | `logs/geometry.log`: usually port selection (wrong loop) or unsupported topology | cad |
+| mesh | Gmsh error; try `tet-coarse` or a refinement box | cad |
+| case / solve | `stop_reason` in state; try `tet-robust-slow-energy`, then `numerical_variant` | cfd |
+| audit | which check failed, in `cases/*/audits/*.json` | verification |

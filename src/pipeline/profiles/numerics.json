@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "note": "Each profile is a complete solver setup. Lessons that produced these values are in memory/cfd.md.",
+  "profiles": {
+    "hex-kepsilon": {
+      "description": "Aligned hexahedral meshes: kEpsilon, full corrected solid diffusion, standard relaxation (fixed-demo baseline).",
+      "turbulence_model": "kEpsilon", "turbulence_intensity": 0.05,
+      "solid_gradient": "leastSquares", "solid_nonorthogonal_correctors": 3,
+      "solid_enthalpy_relaxation": 0.9, "fluid_enthalpy_relaxation": 0.9,
+      "velocity_relaxation": 0.7, "pressure_relaxation": 0.3,
+      "fluid_laplacian": "Gauss linear limited 0.5",
+      "velocity_initialization": "uniform", "write_interval": 100, "field_minmax_interval": 20
+    },
+    "tet-robust": {
+      "description": "Tetrahedral passages: SST with Spalding walls, cell-limited solid gradient, potential-flow velocity start, low momentum/pressure relaxation (manifold fixed-40 case).",
+      "turbulence_model": "kOmegaSST_spalding", "turbulence_intensity": 0.05,
+      "solid_gradient": "cellLimited Gauss linear 1", "solid_nonorthogonal_correctors": 2,
+      "solid_enthalpy_relaxation": 0.9, "fluid_enthalpy_relaxation": 0.9,
+      "velocity_relaxation": 0.3, "pressure_relaxation": 0.2,
+      "fluid_laplacian": "Gauss linear limited 0.5",
+      "velocity_initialization": "potential", "write_interval": 100, "field_minmax_interval": 10
+    },
+    "tet-robust-slow-energy": {
+      "description": "tet-robust with enthalpy relaxation 0.3 for the first startup chunk when 0.9 diverges; switch to tet-robust via numerical_variant afterwards.",
+      "turbulence_model": "kOmegaSST_spalding", "turbulence_intensity": 0.05,
+      "solid_gradient": "cellLimited Gauss linear 1", "solid_nonorthogonal_correctors": 2,
+      "solid_enthalpy_relaxation": 0.3, "fluid_enthalpy_relaxation": 0.3,
+      "velocity_relaxation": 0.3, "pressure_relaxation": 0.2,
+      "fluid_laplacian": "Gauss linear limited 0.5",
+      "velocity_initialization": "potential", "write_interval": 100, "field_minmax_interval": 10
+    }
+  }
+}

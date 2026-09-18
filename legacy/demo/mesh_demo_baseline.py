@@ -7,7 +7,8 @@ CFD must report wall-distance/y+ and mesh sensitivity independently.
 import argparse
 import json
 from pathlib import Path
-from step_preview import backend, digest
+from src.cad.step_preview import backend
+from src.foam.hashing import digest
 
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('geometry');p.add_argument('output')

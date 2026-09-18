@@ -8,7 +8,8 @@ import argparse
 import json
 import math
 from pathlib import Path
-from step_preview import backend, digest
+from src.cad.step_preview import backend
+from src.foam.hashing import digest
 
 DEMO_SHA = 'b5020829defd7dd4c6fe49cb579501aec6710e8c4fde875658e81e569e0238ec'
 
