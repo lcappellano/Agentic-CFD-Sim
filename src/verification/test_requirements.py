@@ -62,6 +62,26 @@ class RequirementsTests(unittest.TestCase):
         self.approve_fixture()
         return Path(review.handoff(self.folder)["handoff_directory"])
 
+    def test_pump_limit_is_distinct_from_outlet_and_survives_handoff(self):
+        payload = self.complete_payload()
+        payload['requirements']['max_pump_pressure_rise_Pa'] = 800000
+        payload['requirements']['outlet_absolute_pressure_bounds_Pa'] = [101325, 101325]
+        state = review.save_draft(self.folder, payload, 0)
+        self.assertEqual(state['issues'], [])
+        self.approve_fixture(state)
+        folder = Path(review.handoff(self.folder)['handoff_directory'])
+        project = json.loads((folder / 'project.json').read_text())
+        self.assertEqual(project['max_pump_pressure_rise_Pa'], 800000)
+        self.assertEqual(project['outlet_absolute_pressure_bounds_Pa'], [101325, 101325])
+
+    def test_invalid_pump_limits_block_approval(self):
+        for value in (0, -1, True, '8'):
+            req = self.complete_payload()['requirements']
+            req['max_pump_pressure_rise_Pa'] = value
+            self.assertIn('max_pump_pressure_rise', review.bounds_errors(req))
+        req['max_pump_pressure_rise_Pa'] = None
+        self.assertNotIn('max_pump_pressure_rise', review.bounds_errors(req))
+
     def test_initial_values_are_unresolved_and_cannot_handoff(self):
         self.assertFalse(self.initial["approved"])
         self.assertIsNone(self.initial["approval"])

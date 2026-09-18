@@ -88,6 +88,8 @@ def initialize_review(folder, source_path, model, project=None):
             raise ValueError('Project has two heat-load representations; resolve before review.')
         if project.get('pressure_input') is not None:
             requirements['pressure_input'] = copy.deepcopy(project['pressure_input'])
+        if project.get('max_pump_pressure_rise_Pa') is not None:
+            requirements['max_pump_pressure_rise_Pa'] = project['max_pump_pressure_rise_Pa']
     requirements['units_confirmed'] = False
     draft = {'schema_version': 1, 'revision': 0,
              'model_fingerprint': model['import_fingerprint'],
@@ -139,7 +141,7 @@ def validate_draft_structure(model, draft):
             seen.add(identity)
     req = draft.get('requirements')
     template = defaults()
-    if not isinstance(req, dict) or set(req) - {'pressure_input'} != set(template):
+    if not isinstance(req, dict) or set(req) - {'pressure_input', 'max_pump_pressure_rise_Pa'} != set(template):
         raise ValueError('Requirements fields do not match the review schema.')
     pressure = req.get('pressure_input')
     if pressure is not None:
@@ -173,6 +175,9 @@ def positive(value):
 def bounds_errors(req):
     """Field-specific diagnostics; incomplete drafts remain saveable."""
     errors = {}
+    pump_limit = req.get('max_pump_pressure_rise_Pa')
+    if pump_limit is not None and not positive(pump_limit):
+        errors['max_pump_pressure_rise'] = 'Enter a maximum pump pressure rise greater than 0 bar, or leave it blank if unspecified.'
     pressure_input = req.get('pressure_input')
     for key, prefix, label, unit in (
         ('mass_flow_bounds_kg_s', 'flow', 'Mass flow', 'kg/s'),
@@ -343,6 +348,8 @@ def project_for_handoff(destination, draft):
     project[req['heat_load']['mode']] = req['heat_load']['value']
     if req.get('pressure_input') is not None:
         project['pressure_input'] = copy.deepcopy(req['pressure_input'])
+    if req.get('max_pump_pressure_rise_Pa') is not None:
+        project['max_pump_pressure_rise_Pa'] = req['max_pump_pressure_rise_Pa']
     return project
 
 

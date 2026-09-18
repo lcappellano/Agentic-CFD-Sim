@@ -99,3 +99,11 @@ requirements to map into it, not an independently implemented schema:
 Target pressure drop remains distinct from whole-loop pumping requirements.
 The latter needs loop-loss information beyond the CAD component. A component-only
 request must not be represented as establishing pump suitability.
+
+Optional `max_pump_pressure_rise_Pa` records a positive pump differential-pressure
+ceiling independently of outlet absolute pressure. It displays in bar and survives
+CAD handoff. Legacy reviews may omit it; null means unspecified. The atmospheric
+return shortcut explicitly sets both outlet bounds to101325Pa absolute without
+changing the pump ceiling. Applying that pressure at a part outlet assumes
+negligible return-line losses and elevation; component pressure drop alone does
+not establish the pump requirement for a full cooling loop.

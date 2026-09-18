@@ -129,3 +129,11 @@ The manifest hashes the payload and source evidence; serving rechecks provenance
 against the original run. Acceptance, numerical verification, model qualifications
 and experimental validation remain distinct. The current adapter is restricted
 to the accepted canonical hexahedral demo case. See docs/results-viewer.md.
+
+Optional `max_pump_pressure_rise_Pa` records a positive pump differential-pressure
+ceiling independently of outlet absolute pressure. It displays in bar and survives
+CAD handoff. Legacy reviews may omit it; null means unspecified. The atmospheric
+return shortcut explicitly sets both outlet bounds to101325Pa absolute without
+changing the pump ceiling. Applying that pressure at a part outlet assumes
+negligible return-line losses and elevation; component pressure drop alone does
+not establish the pump requirement for a full cooling loop.

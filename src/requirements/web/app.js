@@ -4,7 +4,8 @@ const roles = ['inlet', 'outlet', 'heated'];
 const colors = { inlet: 0x2188ee, outlet: 0x28a669, heated: 0xf38737, cad: 0xb9c8d3, cap: 0xa985dd };
 let state, draft, dirty = false, busy = false, conflicted = false;
 let activeRole = 'inspect', selectedId = null, viewerReady = false;
-let THREE, renderer, scene, camera, controls, group, raycaster;
+let THREE, ArcballControls, renderer, scene, camera, controls, group, raycaster;
+let viewCenter, viewRadius, viewHalfHeight = 1;
 let meshes = new Map(), faceButtons = new Map(), faces = new Map();
 let renderedFingerprint = null;
 
@@ -32,6 +33,7 @@ function readForm() {
   requirements.units_confirmed = form.elements.units_confirmed.checked;
   requirements.mass_flow_bounds_kg_s = [numberValue('flow_min'), numberValue('flow_max')];
   const pressure = { mode: form.elements.pressure_mode.value, bounds_Pa: [pressurePa('pressure_min'), pressurePa('pressure_max')], reference_pressure_Pa: form.elements.pressure_mode.value === 'gauge' ? pressurePa('pressure_reference') : null };
+  requirements.max_pump_pressure_rise_Pa = pressurePa('max_pump_pressure_rise');
   requirements.pressure_input = pressure;
   requirements.outlet_absolute_pressure_bounds_Pa = pressure.mode === 'gauge'
     ? pressure.bounds_Pa.map((value) => Number.isFinite(value) && Number.isFinite(pressure.reference_pressure_Pa) && pressure.reference_pressure_Pa > 0 ? value + pressure.reference_pressure_Pa : null)
@@ -46,6 +48,7 @@ function fillForm() {
   form.elements.units_confirmed.checked = r.units_confirmed;
   form.elements.flow_min.value = r.mass_flow_bounds_kg_s?.[0] ?? '';
   form.elements.flow_max.value = r.mass_flow_bounds_kg_s?.[1] ?? '';
+  form.elements.max_pump_pressure_rise.value = r.max_pump_pressure_rise_Pa == null ? '' : r.max_pump_pressure_rise_Pa / 100000;
   form.elements.pressure_mode.value = r.pressure_input?.mode || 'absolute';
   form.elements.pressure_reference.value = r.pressure_input?.reference_pressure_Pa == null ? '' : r.pressure_input.reference_pressure_Pa / 100000;
   const pressureBounds = r.pressure_input?.bounds_Pa || r.outlet_absolute_pressure_bounds_Pa;
@@ -59,11 +62,11 @@ function fillForm() {
 function updatePressureDescription() {
   const gauge = form.elements.pressure_mode.value === 'gauge';
   $('pressure-reference-field').hidden = !gauge;
-  $('pressure-min-label').textContent = `Outlet pressure lower (bar ${gauge ? 'gauge' : 'absolute'})`;
-  $('pressure-max-label').textContent = `Outlet pressure upper (bar ${gauge ? 'gauge' : 'absolute'})`;
+  $('pressure-min-label').textContent = `Outlet / return pressure lower (bar ${gauge ? 'gauge' : 'absolute'})`;
+  $('pressure-max-label').textContent = `Outlet / return pressure upper (bar ${gauge ? 'gauge' : 'absolute'})`;
   $('pressure-help').textContent = gauge
-    ? 'Zero gauge pressure means the ambient/reference pressure. Absolute = gauge + reference. Enter lower ≤ upper; equal bounds give a fixed pressure.'
-    : 'Both absolute-pressure bounds must be greater than zero, with lower ≤ upper. For a fixed pressure, enter the same value in both boxes.';
+    ? 'Return pressure is the pressure at the outlet, not the pump pressure rise. Zero gauge means the ambient/reference pressure. Absolute = gauge + reference. Equal bounds give a fixed return pressure.'
+    : 'Return pressure is the pressure at the outlet, not the pump pressure rise. An open tank can be represented by its atmospheric pressure. Absolute bounds must be greater than zero, with lower ≤ upper; equal bounds give a fixed return pressure.';
   const values = draft.requirements.outlet_absolute_pressure_bounds_Pa;
   $('pressure-conversion').textContent = gauge && values.every(Number.isFinite)
     ? `Absolute pressure used by the simulation: ${format(values[0]/100000)}–${format(values[1]/100000)} bar.` : '';
@@ -109,12 +112,14 @@ function liveBoundsErrors() {
     }
     if (Number.isFinite(lower) && Number.isFinite(upper) && lower > upper) errors[`${prefix}_min`] = `${label} lower bound (${lower/scale} ${shownUnit}) exceeds the upper bound (${upper/scale} ${shownUnit}). Correct the range.`;
   }
+  const pump = draft.requirements.max_pump_pressure_rise_Pa;
+  if (pump != null && (!Number.isFinite(pump) || pump <= 0)) errors.max_pump_pressure_rise = 'Enter a positive pump pressure difference in bar, or leave this optional limit blank.';
   return errors;
 }
 function updateStatus() {
   if (!state) return;
   const errors = !dirty && state.field_errors ? state.field_errors : liveBoundsErrors();
-  for (const name of ['flow_min', 'flow_max', 'pressure_min', 'pressure_max', 'pressure_reference']) {
+  for (const name of ['flow_min', 'flow_max', 'pressure_min', 'pressure_max', 'pressure_reference', 'max_pump_pressure_rise']) {
     const error = errors[name] || '';
     $(`${name}-error`).textContent = error;
     $(`${name}-error`).hidden = !error;
@@ -210,30 +215,51 @@ function refreshSelections() {
 }
 async function initViewer() {
   THREE = await import('three');
-  const { OrbitControls } = await import('/vendor/OrbitControls.js');
+  ({ ArcballControls } = await import('/vendor/ArcballControls.js'));
   const viewport = $('viewport');
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   viewport.prepend(renderer.domElement); renderer.domElement.setAttribute('aria-label', 'Interactive CAD review. The surface list below provides a keyboard alternative.');
-  scene = new THREE.Scene(); camera = new THREE.PerspectiveCamera(40, 1, .01, 100000);
+  scene = new THREE.Scene(); camera = new THREE.OrthographicCamera(-1, 1, 1, -1, .01, 100000);
   camera.up.set(0, 0, 1);
-  controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true;
   scene.add(new THREE.HemisphereLight(0xffffff, 0x667788, 2.5));
   const light = new THREE.DirectionalLight(0xffffff, 2.1); light.position.set(1, -1, 2); scene.add(light);
   const fill = new THREE.DirectionalLight(0xffffff, 1); fill.position.set(-1, 1, -1); scene.add(fill);
   raycaster = new THREE.Raycaster();
-  const resize = () => { const w = viewport.clientWidth, h = viewport.clientHeight; renderer.setSize(w, h); camera.aspect = w/h; camera.updateProjectionMatrix(); };
+  const resize = () => {
+    renderer.setSize(viewport.clientWidth, viewport.clientHeight); updateProjection();
+    if (controls) controls.setTbRadius(controls.radiusFactor);
+    renderView();
+  };
   new ResizeObserver(resize).observe(viewport); resize();
-  let pointerStart;
-  renderer.domElement.addEventListener('pointerdown', (event) => { pointerStart = { x: event.clientX, y: event.clientY, button: event.button }; });
-  renderer.domElement.addEventListener('pointerup', (event) => {
-    if (!pointerStart || pointerStart.button !== 0 || Math.hypot(event.clientX-pointerStart.x, event.clientY-pointerStart.y)>5) return;
-    const rect = renderer.domElement.getBoundingClientRect();
+  let pointerStart = null;
+  const canvas = renderer.domElement;
+  canvas.tabIndex = 0;
+  canvas.setAttribute('aria-label', 'Interactive CAD review. Middle drag rotates; Control middle drag or right drag pans; wheel zooms. Left click selects a surface. F fits; Home restores isometric.');
+  canvas.addEventListener('pointerdown', (event) => {
+    if (event.button === 1) event.preventDefault();
+    canvas.focus({preventScroll: true});
+    pointerStart = event.button === 0 ? {id: event.pointerId, x: event.clientX, y: event.clientY, moved: false} : null;
+  });
+  window.addEventListener('pointermove', (event) => {
+    if (pointerStart?.id === event.pointerId && Math.hypot(event.clientX-pointerStart.x, event.clientY-pointerStart.y)>4) pointerStart.moved = true;
+  });
+  window.addEventListener('pointerup', (event) => {
+    const click = pointerStart; pointerStart = null;
+    if (event.button !== 0 || !click || click.id !== event.pointerId || click.moved || event.target !== canvas || event.ctrlKey || event.shiftKey || event.metaKey) return;
+    const rect = canvas.getBoundingClientRect();
     raycaster.setFromCamera(new THREE.Vector2((event.clientX-rect.left)/rect.width*2-1, -(event.clientY-rect.top)/rect.height*2+1), camera);
     const hit = raycaster.intersectObjects([...meshes.values()].filter((mesh) => mesh.visible), false)[0];
     if (hit) selectFace(hit.object.userData.faceId);
   });
-  renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+  const cancel = () => { pointerStart = null; window.dispatchEvent(new PointerEvent('pointerup', {button: 1, pointerType: 'mouse'})); };
+  canvas.addEventListener('pointercancel', cancel, true); window.addEventListener('blur', cancel);
+  document.addEventListener('keydown', (event) => {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.target.closest('input,select,textarea,[contenteditable]')) return;
+    if (event.key.toLowerCase() === 'f') { event.preventDefault(); fitView(); }
+    else if (event.key === 'Home') { event.preventDefault(); fitView('iso'); }
+  });
+  window.requirementsCameraState = () => ({position: camera.position.toArray(), up: camera.up.toArray(), quaternion: camera.quaternion.toArray(), zoom: camera.zoom, orthographic: camera.isOrthographicCamera, center: viewCenter.toArray(), target: camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(viewRadius*4).add(camera.position).toArray()});
   $('viewer-placeholder').hidden = true; buildModel(); viewerReady = true; updateStatus();
 }
 function buildModel() {
@@ -248,7 +274,7 @@ function buildModel() {
     const mesh = new THREE.Mesh(geometry, material); mesh.userData.faceId = face.id;
     group.add(mesh); meshes.set(face.id, mesh);
   }
-  scene.add(group); renderedFingerprint = state.model.import_fingerprint; fitView(); updateMeshes();
+  scene.add(group); renderedFingerprint = state.model.import_fingerprint; fitView('iso'); updateMeshes();
 }
 function updateMeshes() {
   for (const [id, mesh] of meshes) {
@@ -261,23 +287,57 @@ function updateMeshes() {
     mesh.material.depthWrite = !mesh.material.transparent;
     mesh.material.needsUpdate = true;
   }
+  renderView();
 }
-function fitView() {
+function renderView() { if (renderer && camera) renderer.render(scene, camera); }
+function updateProjection() {
+  const aspect = $('viewport').clientWidth / Math.max(1, $('viewport').clientHeight);
+  camera.left = -viewHalfHeight*aspect; camera.right = viewHalfHeight*aspect;
+  camera.top = viewHalfHeight; camera.bottom = -viewHalfHeight; camera.updateProjectionMatrix();
+}
+function configureControls() {
+  controls?.dispose();
+  controls = new ArcballControls(camera, renderer.domElement, scene);
+  controls.target.copy(viewCenter); controls.setCamera(camera); controls.update();
+  for (const action of [...controls.mouseActions]) controls.unsetMouseAction(action.mouse, action.key);
+  controls.setMouseAction('ROTATE', 1); controls.setMouseAction('PAN', 1, 'CTRL');
+  controls.setMouseAction('PAN', 2); controls.setMouseAction('ZOOM', 'WHEEL');
+  controls.enableAnimations = false; controls.enableFocus = false;
+  controls.enableGizmos = false; controls.setGizmosVisible(false);
+  controls.cursorZoom = false; controls.rotateSpeed = 1;
+  controls.minZoom = .05; controls.maxZoom = 100;
+  controls.addEventListener('change', renderView);
+}
+function fitView(view = null) {
   if (!camera || !state) return;
   const b = state.model.bounds;
-  const center = new THREE.Vector3((b[0]+b[3])/2, (b[1]+b[4])/2, (b[2]+b[5])/2);
-  const radius = Math.max(Math.hypot(b[3]-b[0], b[4]-b[1], b[5]-b[2])/2, .001);
-  const fov = Math.min(camera.fov*Math.PI/180, 2*Math.atan(Math.tan(camera.fov*Math.PI/360)*camera.aspect));
-  const distance = radius/Math.sin(fov/2)*1.15;
-  camera.position.copy(center).add(new THREE.Vector3(1,-1,.85).normalize().multiplyScalar(distance));
-  camera.near = radius/1000; camera.far = radius*1000; camera.updateProjectionMatrix();
-  controls.target.copy(center); controls.maxDistance = radius*500; controls.minDistance = radius/100; controls.update();
+  viewCenter = new THREE.Vector3((b[0]+b[3])/2, (b[1]+b[4])/2, (b[2]+b[5])/2);
+  viewRadius = Math.max(Math.hypot(b[3]-b[0], b[4]-b[1], b[5]-b[2])/2, .001);
+  const directions = {iso: [1,-1,.8], front: [0,-1,0], back: [0,1,0], top: [0,0,1], bottom: [0,0,-1], left: [-1,0,0], right: [1,0,0]};
+  const direction = view ? new THREE.Vector3(...directions[view]).normalize() : camera.getWorldDirection(new THREE.Vector3()).negate();
+  if (view) camera.up.set(0,0,1);
+  else camera.up.set(0,1,0).applyQuaternion(camera.quaternion);
+  if (view === 'top') camera.up.set(0,1,0);
+  if (view === 'bottom') camera.up.set(0,-1,0);
+  viewHalfHeight = viewRadius*1.2 / Math.min(1, $('viewport').clientWidth / Math.max(1, $('viewport').clientHeight));
+  camera.zoom = 1; camera.position.copy(viewCenter).addScaledVector(direction, viewRadius*4);
+  camera.near = viewRadius/1000; camera.far = viewRadius*100; updateProjection();
+  configureControls(); renderView();
 }
 form.addEventListener('submit', (event) => event.preventDefault());
 form.addEventListener('input', () => { if (!state) return; readForm(); updateHeatDescription(); markDirty(); });
 for (const button of document.querySelectorAll('[data-role]')) button.addEventListener('click', () => { activeRole = button.dataset.role; for (const other of document.querySelectorAll('[data-role]')) other.setAttribute('aria-pressed', String(other === button)); });
 for (const id of ['show-caps', 'xray', 'solo']) $(id).addEventListener('change', updateMeshes);
-$('fit-view').addEventListener('click', fitView);
+$('atmospheric-return').addEventListener('click', () => {
+  if (!state || busy || conflicted) return;
+  form.elements.pressure_mode.value = 'absolute';
+  form.elements.pressure_reference.value = '';
+  form.elements.pressure_min.value = '1.01325';
+  form.elements.pressure_max.value = '1.01325';
+  form.dispatchEvent(new Event('input', {bubbles: true}));
+});
+$('fit-view').addEventListener('click', () => fitView());
+for (const button of document.querySelectorAll('[data-view]')) button.addEventListener('click', () => fitView(button.dataset.view));
 $('reviewer').addEventListener('input', updateStatus); $('confirm-review').addEventListener('change', updateStatus);
 $('save').addEventListener('click', () => withBusy(async () => { readForm(); const next = await api('/api/draft', { expected_revision: state.draft.revision, draft: { selections: draft.selections, requirements: draft.requirements } }); adoptState(next); message(next.issues.length ? `Draft saved. ${next.issues.length} item(s) still need correction before approval; see the highlighted fields and review list.` : 'Draft saved. Review the current selections and requirements before approval.', true); }));
 $('reload').addEventListener('click', () => { if (dirty && !window.confirm('Reload the saved review and discard your unsaved changes?')) return; withBusy(async () => { adoptState(await api('/api/state')); message('Loaded the saved review.', true); }); });

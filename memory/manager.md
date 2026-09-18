@@ -159,3 +159,47 @@ was isolated to 759 legend-text pixels differing by 1/255; every camera state
 value exactly matched. Home-only pixel tolerance documented in browser test.
 Source hashes and whitespace checks pass. Viewer running on port8766; user
 manual feel remains the final usability check, not proof of SOLIDWORKS parity.
+
+## First real manifold intake — 2026-09-17
+
+- Active review runs/20260918T002459-astra-manifold-review-27f127f8, port8767.
+  Source Cooling_Test_Part_Astra_Generated_Manifold.STEP preserved, SHA256
+  c042996a9a2b362f519f7c8d07129d84e717d378b8251321fadf17c2605dc813.
+  Import job runs/20260918T002459-astra-manifold-import-15d91933 succeeded.
+- CAD intake:1solid226faces,156×10.6×52mm. Four cap candidates are concentric
+  pairs: true opening proposals Ø8 port:22-583 (+x),port:16-584 (-x); Ø10 outer
+  tube loops overlap solid and are not valid fluid caps. Connectivity unverified.
+- User specifies copper/water,10MW/m² on ONE square flat face,200°C heatedmax,
+  10°C inlet. Saved draftrev1 SI:1e7W/m²,473.15K,283.15K. Square faces221/226
+  each2704mm² ->27.04kW for one full face. No face assignment or approval yet.
+  Await flow/pressure bounds,other thermal BC,objective,heated-face and inlet choice.
+- Requirements viewer now shares proven Arcball orthographic interaction style
+  with results. Synthetic approval/form browser test passed in
+  runs/20260918T002718-manifold-intake-browser-7423481a; never approved real case.
+- No extraction, computational meshing or solve. Demo adapter cannot run this
+  manifold unchanged. Next: user visually selects/approves exact requirements,
+  then geometry-specific fluid extraction and physical/model applicability review.
+
+- User follow-up saved as draftrevision2: maximum50L/min,8bar (meaning pending),
+  seek minimum required pressure to about10% and corresponding flow,heated<200°C.
+  Vacuum exterior,no convection;radiation choice pending. Do not use8bar as
+  outlet absolute pressure without clarification. Volumetric flow cap retained in
+  objective/notes pending density conversion; canonical mass bounds left unset.
+  Proposed conditional bracket/refinement strategy in search-plan.md.
+- Actual manifold browser check passed without modifying review:
+  runs/20260918T002756-manifold-real-viewer-5a051172. Screenshot manifold-review.png
+  shows revision1 conditions (before operating-limit follow-up); reload viewer
+  for latest draft. Requirements are still unapproved, no simulation executed.
+
+## Pump/return pressure clarification
+
+User confirms atmospheric tank return and8bar maximum pump PRESSURE RISE.
+Saved into current draftrevision5 preserving user's selected surfaces. Explicit
+standard atmosphere assumption101325Pa absolute fixed outlet; neglected return
+line/elevation losses. Optional max_pump_pressure_rise_Pa=800000 is separate
+from outlet bounds. UI now distinguishes these and offers atmospheric shortcut.
+Do not interpret8bar as outlet absolute pressure or claim whole-loop pump sizing.
+35 requirements tests pass: runs/20260918T003517-pump-pressure-regression-7a83f35d.
+Current user-selected inlet port:9-585 is incorrect outerØ10 cap; informed user
+to replace with co-centered innerØ8 port:22-583 before approval. Outlet
+port:16-584 and heatedface:221 preserved. Radiation and flowbounds unresolved.

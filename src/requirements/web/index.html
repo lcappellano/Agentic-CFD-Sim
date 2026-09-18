@@ -25,7 +25,10 @@
       <button type="button" data-role="heated" class="heated" aria-pressed="false">Heat into solid</button>
       <button type="button" data-role="clear" aria-pressed="false">Clear</button>
     </div>
-    <div id="viewport"><div id="viewer-placeholder">Loading local 3D viewer…</div><div class="view-hint">Drag to orbit · scroll to zoom · right-drag to pan</div></div>
+    <nav class="camera-views" aria-label="Standard CAD views">
+      <button type="button" data-view="iso">Isometric</button><button type="button" data-view="front">Front</button><button type="button" data-view="back">Back</button><button type="button" data-view="top">Top</button><button type="button" data-view="bottom">Bottom</button><button type="button" data-view="left">Left</button><button type="button" data-view="right">Right</button>
+    </nav>
+    <div id="viewport"><div id="viewer-placeholder">Loading local 3D viewer…</div><div class="view-hint">Middle-drag rotates · Ctrl + middle-drag pans · scroll zooms · F fits · Home resets</div></div>
     <div class="view-options">
       <label><input type="checkbox" id="show-caps" checked> Show proposed port caps</label>
       <label><input type="checkbox" id="xray"> Transparent solid</label>
@@ -58,9 +61,13 @@
       <fieldset><legend>Coolant operating bounds</legend>
         <p class="help">Coolant enters the blue inlet set and exits the green outlet set. Use equal lower and upper values for a fixed operating point.</p>
         <div class="field-pair"><label>Mass flow lower (kg/s)<input name="flow_min" type="number" step="any" min="0" aria-describedby="flow_min-error"><span class="field-error" id="flow_min-error" hidden></span></label><label>Mass flow upper (kg/s)<input name="flow_max" type="number" step="any" min="0" aria-describedby="flow_max-error"><span class="field-error" id="flow_max-error" hidden></span></label></div>
-        <label>Pressure reference<select name="pressure_mode"><option value="absolute">Absolute pressure · relative to vacuum</option><option value="gauge">Gauge pressure · relative to ambient</option></select></label>
+        <label>Maximum pump pressure rise (bar) · optional<input name="max_pump_pressure_rise" type="number" step="any" min="0" placeholder="Leave blank if unknown" aria-describedby="pump-pressure-help max_pump_pressure_rise-error"><span class="field-error" id="max_pump_pressure_rise-error" hidden></span></label>
+        <p class="help" id="pump-pressure-help">The pump pressure rise is a pressure difference across the pump, not an absolute pressure or the outlet pressure. Enter a known positive limit; leave blank if unknown. Pipework and other components may consume part of this available pressure rise.</p>
+        <label>Outlet / return pressure reference<select name="pressure_mode"><option value="absolute">Absolute pressure · relative to vacuum</option><option value="gauge">Gauge pressure · relative to ambient</option></select></label>
         <label id="pressure-reference-field" hidden>Ambient/reference absolute pressure (bar)<input name="pressure_reference" type="number" step="any" min="0" placeholder="Enter the agreed reference pressure" aria-describedby="pressure_reference-error"><span class="field-error" id="pressure_reference-error" hidden></span></label>
-        <div class="field-pair"><label><span id="pressure-min-label">Outlet pressure lower (bar absolute)</span><input name="pressure_min" type="number" step="any" aria-describedby="pressure-help pressure_min-error"><span class="field-error" id="pressure_min-error" hidden></span></label><label><span id="pressure-max-label">Outlet pressure upper (bar absolute)</span><input name="pressure_max" type="number" step="any" aria-describedby="pressure-help pressure_max-error"><span class="field-error" id="pressure_max-error" hidden></span></label></div>
+        <div class="field-pair"><label><span id="pressure-min-label">Outlet / return pressure lower (bar absolute)</span><input name="pressure_min" type="number" step="any" aria-describedby="pressure-help pressure_min-error"><span class="field-error" id="pressure_min-error" hidden></span></label><label><span id="pressure-max-label">Outlet / return pressure upper (bar absolute)</span><input name="pressure_max" type="number" step="any" aria-describedby="pressure-help pressure_max-error"><span class="field-error" id="pressure_max-error" hidden></span></label></div>
+        <button id="atmospheric-return" type="button">Atmospheric return (1.01325 bar absolute)</button>
+        <p class="help">Use this shortcut only if the outlet returns to an open tank at standard atmospheric pressure. It sets both return-pressure bounds; it does not set the pump limit.</p>
         <p class="help" id="pressure-help">Both absolute-pressure bounds must be greater than zero, with lower ≤ upper. For a fixed pressure, enter the same value in both boxes.</p>
         <p class="help" id="pressure-conversion" aria-live="polite"></p>
       </fieldset>

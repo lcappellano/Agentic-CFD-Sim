@@ -38,6 +38,13 @@ def main():
                 expect(page.locator('#approve')).to_be_disabled()
                 expect(page.locator('#handoff')).to_be_disabled()
                 expect(page.locator('#confirm-review')).not_to_be_checked()
+                page.locator('[name="max_pump_pressure_rise"]').fill('8')
+                page.locator('#atmospheric-return').click()
+                expect(page.locator('[name="pressure_mode"]')).to_have_value('absolute')
+                expect(page.locator('[name="pressure_min"]')).to_have_value('1.01325')
+                expect(page.locator('[name="pressure_max"]')).to_have_value('1.01325')
+                expect(page.locator('[name="max_pump_pressure_rise"]')).to_have_value('8')
+
 
                 # Real ray picking, then orbit; check that the inspected CAD ID updates.
                 page.locator('#viewport canvas').click(position={'x': 340, 'y': 245})
@@ -46,9 +53,9 @@ def main():
                 before = canvas.screenshot()
                 box = canvas.bounding_box()
                 page.mouse.move(box['x'] + 350, box['y'] + 250)
-                page.mouse.down()
+                page.mouse.down(button="middle")
                 page.mouse.move(box['x'] + 430, box['y'] + 280, steps=12)
-                page.mouse.up()
+                page.mouse.up(button="middle")
                 page.wait_for_timeout(300)
                 assert canvas.screenshot() != before, 'Orbit interaction did not change rendered geometry'
                 page.locator('#fit-view').click()

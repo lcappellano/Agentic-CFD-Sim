@@ -112,7 +112,10 @@ are inherited. Four workers may run concurrently; requirements normally finishes
 before downstream CAD, so five role definitions need no higher concurrency limit.
 
 Display uses pinned [Three.js](https://threejs.org/docs/pages/Raycaster.html)
-0.180.0 and its [OrbitControls](https://threejs.org/docs/pages/OrbitControls.html).
+0.180.0 and its [ArcballControls](https://threejs.org/docs/pages/ArcballControls.html).
+The orthographic camera uses middle-drag rotation, Ctrl-middle/right-drag pan,
+wheel zoom and left-click inspection/assignment. F fits the part while keeping
+orientation; Home restores isometric. Standard-view buttons aid face selection.
 STEP reading, boundary geometry and display tessellation use
 [Gmsh/OpenCASCADE](https://gmsh.info/doc/texinfo/) through the vendored Gmsh 4.14.0
 Python wrapper and installed 4.14.0 runtime (this machine reports 4.14.0-git).

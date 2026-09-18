@@ -53,7 +53,7 @@ def make_server(folder, port=8765):
                     path = WEB / 'index.html'
                 elif route in ('/app.js', '/style.css'):
                     path = WEB / route[1:]
-                elif route in ('/vendor/three.module.js', '/vendor/three.core.js', '/vendor/OrbitControls.js'):
+                elif route in ('/vendor/three.module.js', '/vendor/three.core.js', '/vendor/OrbitControls.js', '/vendor/ArcballControls.js'):
                     path = WEB / route[1:]
                 else:
                     self.send_data(404, {'error': 'Not found.'})
