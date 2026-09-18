@@ -118,3 +118,14 @@ forever; a running client/service is required. WSL must remain awake during solv
 
 Agent file ownership is a coordination convention, not filesystem isolation.
 Use separate worktrees if future tasks require overlapping code changes.
+
+## Results visualization
+
+`results-export RUN` creates a new versioned export containing `results.json`
+and `manifest.json`. Schema version 1 records run/case/iteration, triangle
+coordinates in mm, source face/cell IDs and SI-valued fields. Missing fields
+remain absent. Fluid slices contain piecewise constant saved cell values.
+The manifest hashes the payload and source evidence; serving rechecks provenance
+against the original run. Acceptance, numerical verification, model qualifications
+and experimental validation remain distinct. The current adapter is restricted
+to the accepted canonical hexahedral demo case. See docs/results-viewer.md.

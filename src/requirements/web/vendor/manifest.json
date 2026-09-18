@@ -17,6 +17,10 @@
     "LICENSE": {
       "url": "https://raw.githubusercontent.com/mrdoob/three.js/r180/LICENSE",
       "sha256": "bfe119ea4fd413f5f7ca3fcd63adb0c4a073ed39daa2fe7d3e6b769e21272601"
+    },
+    "ArcballControls.js": {
+      "url": "https://raw.githubusercontent.com/mrdoob/three.js/r180/examples/jsm/controls/ArcballControls.js",
+      "sha256": "da2699e2d18c89c89eb8819ca5c33be066b92098bcc0dbb14b2b4e522b1a349f"
     }
   }
 }

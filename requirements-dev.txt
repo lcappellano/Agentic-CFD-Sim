@@ -1,0 +1,6 @@
+# Optional browser verification only; runtime server/exporter use the standard library.
+# Validated with Python 3.14.4 and Chromium build 1208 (145.0.7632.6).
+playwright==1.58.0
+greenlet==3.5.6
+pyee==13.0.1
+typing_extensions==4.16.0

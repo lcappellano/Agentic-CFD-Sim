@@ -68,3 +68,12 @@
   qualified manual wall-model acceptance documented separately from automated
   numerical checks. A nominal guideline is not silently promoted to a new hard
   criterion or silently relaxed to produce a pass. Preserve explicit judgment.
+- Results viewer review, runs/20260917T235215-results-viewer-2423202f,
+  Python3.14.4/Playwright1.58.0/Chromium145.0.7632.6: nine backend/field tests
+  and actual browser tests passed. Match every exported face/cell value to raw
+  saved fields, not only summary extrema. Directory names ending `final` can
+  refer to rejected development cases; select the decision-bound corrected pair.
+  Frozen export/source hashes, units and original case identity are essential
+  for visualization provenance. noSlip U can omit value and means exact zero;
+  zeroGradient uses owner-cell values. Applies to canonical ASCII fixed-demo
+  export only; viewer tests do not extend CFD validation or geometric support.

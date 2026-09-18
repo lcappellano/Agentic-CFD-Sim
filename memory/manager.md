@@ -109,3 +109,53 @@
 - Next requested engineering task: use verified demo as reference, visuallyapprove
   any new STEP requirements and implement/review its geometry-specific adapter.
   Do not assume demo-only source guards support arbitrary parts.
+
+## Final results viewer — 2026-09-17
+
+- User requested interactive final CFD inspection. CFD exported saved fields, CAD
+  built Three.js UI, verification independently checked data and browser behavior.
+  Manager integrated read-only loopback server, CLI and documentation.
+- Current export: baseline run/results-viewer/v1, canonical fine corrected case
+  at iteration 2000. Viewer port 8766; initial requirements port 8765 unchanged.
+  Six boundary surfaces and nine cell-intersection slices; T, fluid p and speed.
+  Pressure displays bar gauge/absolute with 1.01325 bar reference. No solver rerun.
+- Guide docs/results-viewer.md; work record runs/20260917T235215-results-viewer-2423202f.
+  Nine data/backend tests and Chromium 145 browser interactions passed. Source and
+  payload hashes are checked on serving. Adapter remains canonical-demo-only.
+- Installed pip 26.2.1 and optional Playwright 1.58.0 in project .venv for browser
+  verification; requirements-dev.txt pins browser Python dependencies. Runtime
+  viewer uses standard library and existing vendored Three.js 0.180.0.
+
+- Results navigation follow-up: middle-drag rotates, Ctrl+middle pans, left-click
+  probes, scroll zooms, right-drag remains pan. Reversed previous rotation per
+  user feedback and disabled inertia. Retains orbit camera (not full SOLIDWORKS
+  trackball emulation). Chromium interaction checks passed with no page errors:
+  runs/20260918T000551-results-cad-mouse-browser-1b52502a. No simulation changes.
+
+- Navigation correction: user found reversed rotation worse and requested default
+  direction. Restored OrbitControls rotateSpeed=1; middle-button mapping and
+  immediate stopping retained. No simulation or field changes.
+
+## Navigation redesign — 2026-09-17
+
+- User identified rotation flipping/fighting mouse, not latency. Replaced fixed-up
+  OrbitControls with official pinned Three.js r180 ArcballControls; URL/SHA recorded
+  in vendor manifest and existing MIT license retained. Initial Orbit setup
+  constructed controls before changing camera Y-up to Z-up, a cached-axis mismatch.
+- Results viewer now uses orthographic projection, free rotation, middle rotate,
+  Ctrl-middle/right pan, wheel zoom, left probe, no inertia. Seven views; F fits
+  preserving orientation, Home resets iso. Event-driven rendering avoids idle GPU
+  work. Service restarted on port8766 for the new vendor route.
+- Navigation tests now check quaternion continuity, top/bottom out-and-back,
+  unchanged pan orientation, repeatable presets, fit and resize. Do not judge
+  navigation correctness merely by changed screenshots. No CFD rerun or changes.
+
+Navigation redesign verified: 9 backend/data tests passed in
+`runs/20260918T001548-arcball-server-verification-3c302ece`; Chromium navigation
+and field checks passed in `runs/20260918T002017-results-arcball-verified-dbd77aaf`.
+Top/bottom reversible rotation, bounded orientation increments, seven presets,
+pan, no inertia, Fit/Home and resize passed. Initial Home PNG equality failure
+was isolated to 759 legend-text pixels differing by 1/255; every camera state
+value exactly matched. Home-only pixel tolerance documented in browser test.
+Source hashes and whitespace checks pass. Viewer running on port8766; user
+manual feel remains the final usability check, not proof of SOLIDWORKS parity.

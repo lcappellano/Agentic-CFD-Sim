@@ -209,3 +209,11 @@ Configuration checked against documentation on 2026-09-17; client formats can ev
 - [Codex in WSL](https://learn.chatgpt.com/docs/windows/wsl)
 - [VS Code WSL workflow](https://code.visualstudio.com/docs/remote/wsl)
 - [Codex pricing and usage](https://learn.chatgpt.com/docs/pricing)
+
+## Final simulation viewer
+
+Inspect the accepted demo in the [3D results viewer](docs/results-viewer.md):
+rotate and probe temperature, pressure in bar and fluid speed, with transparent
+solid surfaces and internal slices. Launch with `tools/workbench.py results-serve`
+or the VS Code results-viewer task. Saved fields and review provenance are checked;
+viewing does not launch a simulation.

@@ -18,6 +18,7 @@ import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'src'))
 
 
@@ -164,6 +165,13 @@ def main():
     review_draft.add_argument('review_directory')
     review_draft.add_argument('--draft', required=True)
     review_draft.add_argument('--revision', type=int, required=True)
+    results_export = sub.add_parser('results-export', help='Freeze accepted saved CFD fields for the 3D results viewer; no solve.')
+    results_export.add_argument('run_directory')
+    results_export.add_argument('--output', help='Fresh output directory relative to workspace.')
+    results_serve = sub.add_parser('results-serve', help='Serve the read-only 3D results viewer locally.')
+    results_serve.add_argument('export_directory')
+    results_serve.add_argument('--run', help='Source run directory if the export was relocated.')
+    results_serve.add_argument('--port', type=int, default=8766)
     job = sub.add_parser('job')
     job.add_argument('--label', default='job')
     job.add_argument('--cwd', default='.', help='Working directory relative to project root.')
@@ -174,6 +182,23 @@ def main():
     try:
         if args.action == 'doctor':
             doctor()
+            return 0
+        if args.action.startswith('results-'):
+            import workflow
+            if args.action == 'results-export':
+                from results.export import export_results
+                run = workflow.local_path(ROOT, args.run_directory)
+                output = workflow.local_path(ROOT, args.output) if args.output else run / 'results-viewer' / (
+                    datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S') + '-' + uuid.uuid4().hex[:8])
+                export_results(run, output)
+                print(json.dumps({'export_directory': str(output.relative_to(ROOT)),
+                                  'serve_command': '.venv/bin/python tools/workbench.py results-serve ' + str(output.relative_to(ROOT)),
+                                  'simulation_launched': False}, indent=2))
+            else:
+                from results.server import serve
+                folder = workflow.local_path(ROOT, args.export_directory)
+                run = workflow.local_path(ROOT, args.run) if args.run else None
+                serve(folder, args.port, run)
             return 0
         if args.action.startswith('review-'):
             import workflow

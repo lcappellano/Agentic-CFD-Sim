@@ -6,10 +6,12 @@
     {"label": "Workbench: check request inputs", "type": "process", "command": "python3", "args": ["tools/workbench.py", "check"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
     {"label": "Workbench: prepare request only", "type": "process", "command": "python3", "args": ["tools/workbench.py", "job", "--label", "prepare", "--input", "project.json", "--input", "src/workflow.py", "--input", "tools/workbench.py", "--", "python3", "tools/workbench.py", "prepare"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
     {"label": "Workbench: inspect local tools", "type": "process", "command": "python3", "args": ["tools/workbench.py", "doctor"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
-    {"label": "Workbench: smoke test", "type": "process", "command": "python3", "args": ["tools/workbench.py", "job", "--label", "smoke", "--input", "examples/smoke.py", "--", "python3", "examples/smoke.py"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []}
+    {"label": "Workbench: smoke test", "type": "process", "command": "python3", "args": ["tools/workbench.py", "job", "--label", "smoke", "--input", "examples/smoke.py", "--", "python3", "examples/smoke.py"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []},
+    {"label": "Workbench: serve results viewer", "type": "process", "command": ".venv/bin/python", "args": ["tools/workbench.py", "results-serve", "${input:resultsPath}", "--port", "8766"], "options": {"cwd": "${workspaceFolder}"}, "problemMatcher": []}
   ],
   "inputs": [
     {"id": "stepPath", "type": "promptString", "description": "STEP path relative to workspace", "default": "inputs/part.step"},
-    {"id": "reviewPath", "type": "promptString", "description": "Requirements review directory printed by import", "default": "runs/20260917T215831-requirements-demo-634b5abf"}
+    {"id": "reviewPath", "type": "promptString", "description": "Requirements review directory printed by import", "default": "runs/20260917T215831-requirements-demo-634b5abf"},
+    {"id": "resultsPath", "type": "promptString", "description": "Results export directory printed by results-export", "default": "runs/20260917T231138-demo-baseline-7716aa5b/results-viewer/v1"}
   ]
 }
