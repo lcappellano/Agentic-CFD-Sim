@@ -136,9 +136,12 @@ def main():
     simulate = sub.add_parser('simulate', help='Run a simulation spec end to end (cached per stage).')
     simulate.add_argument('spec')
     simulate.add_argument('--run', help='Existing run directory to continue; default creates a new one.')
-    simulate.add_argument('--until', choices=['handoff', 'geometry', 'mesh', 'materials', 'screen', 'case', 'solve', 'audit', 'export'],
+    simulate.add_argument('--until', choices=['handoff', 'geometry', 'materials', 'prescreen', 'mesh', 'case', 'solve', 'audit', 'export'],
                           help='Stop after this stage.')
     simulate.add_argument('--dry-run', action='store_true', help='Print the resolved spec and exit.')
+    prescreen = sub.add_parser('prescreen', help='Correlation sweep of flow and outlet pressure; no meshing or CFD.')
+    prescreen.add_argument('spec')
+    prescreen.add_argument('--run', help='Existing run directory to reuse.')
     status = sub.add_parser('status', help='Compact state of a run.')
     status.add_argument('run_directory')
     status.add_argument('--json', action='store_true')
@@ -183,12 +186,14 @@ def main():
         if args.action == 'doctor':
             doctor()
             return 0
-        if args.action == 'simulate':
+        if args.action in ('simulate', 'prescreen'):
             from src.pipeline.driver import simulate as run_simulation
-            state = run_simulation(ROOT, local_path(args.spec), local_path(args.run) if args.run else None, args.until, args.dry_run)
+            until = 'prescreen' if args.action == 'prescreen' else args.until
+            dry_run = getattr(args, 'dry_run', False)
+            state = run_simulation(ROOT, local_path(args.spec), local_path(args.run) if args.run else None, until, dry_run)
             if state is None:
                 return 0
-            return 0 if all(s.get('status') != 'failed' for s in state['stages'].values()) else 1
+            return 0 if state.get('status') != 'failed' else 1
         if args.action == 'status':
             from src.pipeline import state as state_module
             from src import workflow

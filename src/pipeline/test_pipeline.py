@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from src.pipeline import spec as spec_module, state as state_module
+from src.pipeline.spec import missing_operating_point
 from src.pipeline.fixtures import synthetic_handoff
 from src.pipeline.report import write_report
 
@@ -48,6 +49,14 @@ class SpecTests(unittest.TestCase):
         self.assertEqual(resolved['numerics']['turbulence_model'], 'kEpsilon')
         self.assertEqual(resolved['mesh']['wall_size_m'], .0002)
 
+    def test_operating_point_may_be_left_for_the_operator(self):
+        resolved = spec_module.resolve(spec_module.load(self.write({'prescreen': {'flow_range_L_min': [1, 20], 'points': 4}})), self.root)
+        self.assertEqual(missing_operating_point(resolved['operating']), ['operating.volume_flow_L_min (or mass_flow_kg_s)'])
+        self.assertEqual(resolved['prescreen']['flow_range_L_min'], [1, 20])
+        self.assertEqual(resolved['prescreen']['wall_subcooling_margin_K'], 10)
+        with self.assertRaises(ValueError):
+            spec_module.resolve(spec_module.load(self.write({'prescreen': {'flows_lpm': [1]}})), self.root)
+
     def test_unknown_keys_and_profiles_rejected(self):
         with self.assertRaises(ValueError):
             spec_module.load(self.write({'operatng': {}}))
@@ -83,17 +92,28 @@ class EndToEndTests(unittest.TestCase):
         (root / 'runs').mkdir(parents=True)
         synthetic_handoff(root / 'handoff')
         spec = {'schema_version': 1, 'handoff': 'handoff', 'label': 'e2e', 'unapproved_handoff_ok': True,
-                'operating': {'mass_flow_kg_s': .5},
+                'prescreen': {'flow_range_L_min': [5, 40], 'points': 4, 'outlet_pressures_bar': [1.11325, 3]},
                 'mesh': {'profile': 'tet-test'}, 'numerics': {'profile': 'tet-robust'},
                 'acceptance': {'profile': 'test-loose'},
                 'schedule': {'initial': 20, 'chunk': 20, 'maximum': 40, 'ranks': 2}}
         (root / 'spec.json').write_text(json.dumps(spec))
         state = simulate(root, root / 'spec.json', log=lambda *_: None)
+        self.assertEqual(state['status'], 'awaiting_operator_decision')
+        self.assertEqual(state['stages']['prescreen']['status'], 'done')
+        self.assertEqual(state['stages']['mesh']['status'], 'pending')
+        self.assertIn('Suggested CFD starting point', state['stages']['prescreen']['table'])
+        run = root / 'runs' / Path(state['run']).name
+        self.assertIn('Decision needed', (run / 'report.md').read_text())
+        spec['operating'] = {'mass_flow_kg_s': .5}
+        spec['decision'] = {'operator': 'e2e test', 'note': 'fixture point'}
+        (root / 'spec.json').write_text(json.dumps(spec))
+        state = simulate(root, root / 'spec.json', run=run, log=lambda *_: None)
+        self.assertEqual(state['status'], 'complete')
+        self.assertTrue(state['stages']['geometry']['cached'])
         statuses = {name: stage['status'] for name, stage in state['stages'].items()}
         self.assertEqual(set(statuses.values()), {'done'}, statuses)
         self.assertIn(state['case']['status'], ('diagnostic', 'numerically_screened'))
         self.assertGreater(state['case']['heated_maximum_K'], 300)
-        run = root / 'runs' / Path(state['run']).name
         self.assertTrue((run / 'report.md').is_file())
         # A second call with a larger maximum must reuse every stage before the solve.
         spec['schedule']['maximum'] = 60

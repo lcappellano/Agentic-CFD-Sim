@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
-STAGES = ('handoff', 'geometry', 'mesh', 'materials', 'screen', 'case', 'solve', 'audit', 'export', 'report')
+STAGES = ('handoff', 'geometry', 'materials', 'prescreen', 'mesh', 'case', 'solve', 'audit', 'export', 'report')
 
 
 def now():
@@ -15,7 +15,7 @@ def load(run):
     if path.is_file():
         return json.loads(path.read_text())
     return {'schema_version': 1, 'run': Path(run).name, 'created': now(), 'stages': {name: {'status': 'pending'} for name in STAGES},
-            'case': None, 'warnings': [], 'events': []}
+            'status': 'running', 'case': None, 'warnings': [], 'events': []}
 
 
 def save(run, state):
@@ -33,7 +33,7 @@ def event(state, stage, status, message=''):
 
 def summary_text(state):
     """Under 1 KB: what an agent needs before deciding anything."""
-    lines = [f"run: {state['run']}   updated: {state.get('updated', '?')}"]
+    lines = [f"run: {state['run']}   status: {state.get('status', '?')}   updated: {state.get('updated', '?')}"]
     for name in STAGES:
         stage = state['stages'].get(name, {})
         status = stage.get('status', 'pending')
@@ -47,6 +47,8 @@ def summary_text(state):
         if stage.get('error'):
             extra += f"  ERROR: {stage['error'][:200]}"
         lines.append(f'  {name:<10} {status:<8}{extra}')
+    if state.get('status') == 'awaiting_operator_decision':
+        lines.append('DECISION NEEDED: ' + state.get('decision_prompt', 'choose the operating point in the spec and rerun'))
     case = state.get('case')
     if case:
         lines.append(f"result: {case['status']}  stop={case.get('stop_reason')}  iteration={case.get('iteration')}")

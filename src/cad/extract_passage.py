@@ -175,6 +175,8 @@ def extract(handoff, output):
         for role in ('inlet', 'outlet'):
             normals[role] = port_records[role][0]['outward_normal']
             diameters[role] = port_records[role][0]['hydraulic_diameter_m']
+        ligament = min(gmsh.model.occ.getDistance(2, heated_face, 2, wall)[0]
+                       for heated_face in groups['heated'] for wall in interface)
         geo = ['SetFactory("OpenCASCADE");', 'Merge "coupled.brep";']
         for index, (name, tags) in enumerate(groups.items(), 1):
             geo.append(f'Physical Surface("{name}", {index}) = {{{", ".join(map(str, tags))}}};')
@@ -196,6 +198,7 @@ def extract(handoff, output):
                                'volume_m3': by_volume[tag], 'occ_volume_tag': tag, 'file': name + '.brep'}
                         for name, tag in (('solid', solid), ('fluid', fluid))},
             'heated_area_m2': sum(gmsh.model.occ.getMass(2, t) for t in groups['heated']),
+            'heated_to_passage_distance_m': ligament,
             'boundary_map': {name: {'occ_surface_tags': tags,
                                     'area_m2': sum(gmsh.model.occ.getMass(2, t) for t in tags),
                                     'centroids_m': [list(gmsh.model.occ.getCenterOfMass(2, t)) for t in tags]}

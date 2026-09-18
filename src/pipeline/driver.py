@@ -27,7 +27,7 @@ from src.pipeline.report import write_report
 from src.pipeline.status import case_status
 from src.results.saved_case import export_saved_case
 from src.thermal.materials import material_basis
-from src.thermal.operating_screen import screen as operating_screen
+from src.thermal.prescreen import prescreen as run_prescreen, markdown as prescreen_markdown
 from src.verification.audit_fields import audit as audit_fields
 from src.verification.audit_geometry import audit as audit_geometry
 from src.verification.review_history import review as review_history
@@ -163,29 +163,57 @@ class Driver:
                                 'rho': round(basis['fluid_properties']['density_kg_m3'], 2)}}
         return self.stage('materials', key, work, output=str(output.relative_to(self.run)))
 
-    def stage_screen(self):
+    def stage_prescreen(self):
         basis_path = Path(self.state['stages']['materials']['result']['basis'])
-        settings = self.case_settings()
+        operating = self.prescreen_operating()
+        options = self.resolved['prescreen']
         key = content_hash({'basis': digest(basis_path), 'geometry': self.state['stages']['geometry']['key'],
-                            'flow': settings['volume_flow_L_min'], 'p': settings['outlet_absolute_pressure_Pa'],
-                            'q': settings['heat_flux_W_m2'], 'T': settings['inlet_temperature_K'], 'source': source_hash('thermal/operating_screen.py')})
-        output = self.run / 'screen' / f'screen-{short(key)}.json'
+                            'operating': operating, 'options': options,
+                            'source': source_hash('thermal/prescreen.py', 'thermal/saturation.py')})
+        output = self.run / 'prescreen' / f'sweep-{short(key)}.json'
 
         def work():
-            project = {'inlet_temperature_K': settings['inlet_temperature_K'], 'heat_flux_W_m2': settings['heat_flux_W_m2'],
-                       'outlet_absolute_pressure_bounds_Pa': [settings['outlet_absolute_pressure_Pa']] * 2}
-            result = operating_screen(project, self.geometry_manifest(), json.loads(basis_path.read_text()),
-                                      [settings['volume_flow_L_min']], settings['minimum_saturation_margin_K'])
+            result = run_prescreen(self.geometry_manifest(), json.loads(basis_path.read_text()), operating, options,
+                                   self.resolved.get('handoff_requirements'))
+            table = prescreen_markdown(result, operating)
             output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_text(json.dumps(result, indent=2) + '\n')
-            row = result['cases'][0]
-            if not row['bulk_single_phase_screen_pass']:
-                self.state['warnings'].append(f"Bulk outlet temperature {row['bulk_outlet_heat_balance_K']:.1f} K is within "
-                                              f"{settings['minimum_saturation_margin_K']} K of saturation; expect the phase screen to fail.")
-            return {'output': self.relative(output), 'result': row,
-                    'summary': {'heat_W': round(result['heat_input_W'], 1), 'outlet_K': round(row['bulk_outlet_heat_balance_K'], 2),
-                                'port_Re': int(row['port_Reynolds']), 'bulk_screen': row['bulk_single_phase_screen_pass']}}
-        return self.stage('screen', key, work, output=str(output.relative_to(self.run)))
+            output.write_text(json.dumps(result, indent=2, allow_nan=False, default=str) + '\n')
+            output.with_suffix('.md').write_text(table)
+            self.state['stages']['prescreen']['table'] = table
+            for warning in result['warnings']:
+                if warning not in self.state['warnings']:
+                    self.state['warnings'].append(warning)
+            rec = result['recommendation']
+            summary = {'flows': len(result['rows']), 'pressures': len(result['pressures_Pa'])}
+            if rec.get('flow_L_min') is not None:
+                summary.update(suggest_L_min=round(rec['flow_L_min'], 2), suggest_bar=round(rec['outlet_absolute_pressure_Pa'] / 1e5, 2),
+                               dp_bar=round(rec['pressure_drop_Pa'] / 1e5, 3))
+            else:
+                summary['suggestion'] = 'none in sweep'
+            return {'output': self.relative(output), 'result': {'recommendation': rec, 'table': str(output.with_suffix('.md'))},
+                    'summary': summary}
+        result = self.stage('prescreen', key, work, output=str(output.relative_to(self.run)))
+        table = self.state['stages']['prescreen'].get('table')
+        if table:
+            self.log(table)
+        return result
+
+    def prescreen_operating(self):
+        """Operating values the prescreen needs, with the spec's units normalised."""
+        from src.cfd.settings import temperature_K, pressure_Pa
+        operating = self.resolved['operating']
+        values = {'inlet_temperature_K': temperature_K(operating, 'inlet_temperature'),
+                  'temperature_limit_K': temperature_K(operating, 'temperature_limit')}
+        if operating.get('heat_flux_W_m2') is not None:
+            values['heat_flux_W_m2'] = operating['heat_flux_W_m2']
+        elif operating.get('total_heat_load_W') is not None:
+            values['heat_flux_W_m2'] = operating['total_heat_load_W'] / self.geometry_manifest()['heated_area_m2']
+        else:
+            raise ValueError('Provide heat_flux_W_m2 or total_heat_load_W (spec or handoff)')
+        for key in ('max_pump_pressure_rise_Pa', 'target_pump_pressure_rise_Pa'):
+            if operating.get(key) is not None:
+                values[key] = operating[key]
+        return values
 
     def case_settings(self):
         basis = json.loads(Path(self.state['stages']['materials']['result']['basis']).read_text())
@@ -304,14 +332,29 @@ class Driver:
                                                   'source': source_hash('pipeline/report.py')}), work, output='report.md')
 
     def execute(self):
-        order = [('handoff', self.stage_handoff), ('geometry', self.stage_geometry), ('mesh', self.stage_mesh),
-                 ('materials', self.stage_materials), ('screen', self.stage_screen), ('case', self.stage_case),
+        order = [('handoff', self.stage_handoff), ('geometry', self.stage_geometry), ('materials', self.stage_materials),
+                 ('prescreen', self.stage_prescreen), ('mesh', self.stage_mesh), ('case', self.stage_case),
                  ('solve', self.stage_solve), ('audit', self.stage_audit), ('export', self.stage_export), ('report', self.stage_report)]
+        self.state['status'] = 'running'
+        self.state.pop('decision_prompt', None)
         for name, method in order:
             method()
+            if name == 'prescreen':
+                missing = spec_module.missing_operating_point(self.resolved['operating'])
+                if missing:
+                    self.state['status'] = 'awaiting_operator_decision'
+                    self.state['decision_prompt'] = ('Choose the CFD operating point from the prescreen table: set '
+                                                     + ' and '.join(missing) + ' in the spec.')
+                    write_report(self.run, self.state, self.resolved)
+                    self.log('stopped: ' + self.state['decision_prompt'])
+                    state_module.save(self.run, self.state)
+                    return self.state
             if self.until == name:
+                self.state['status'] = f'stopped_after_{name}'
                 self.log(f'stopped after {name} as requested')
-                break
+                state_module.save(self.run, self.state)
+                return self.state
+        self.state['status'] = 'complete'
         state_module.save(self.run, self.state)
         return self.state
 
@@ -348,7 +391,7 @@ def simulate(root, spec_path, run=None, until=None, dry_run=False, log=print):
         try:
             driver.execute()
         except StageFailed:
-            pass
+            driver.state['status'] = 'failed'
         state_module.save(run, driver.state)
     log(state_module.summary_text(driver.state))
     return driver.state

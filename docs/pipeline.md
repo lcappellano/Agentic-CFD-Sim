@@ -9,11 +9,37 @@ the rest and records everything in the run directory.
 .venv/bin/python tools/workbench.py status runs/<run>                     # < 1 KB summary
 ```
 
-Stages: `handoff → geometry → mesh → materials → screen → case → solve → audit → export → report`.
+Stages: `handoff → geometry → materials → prescreen → [operator decision] → mesh → case → solve → audit → export → report`.
 Each stage keys on a hash of its inputs (files, settings, and its own source).
 Rerunning with an unchanged input skips the stage; changing `schedule.maximum`
 only extends the solve; changing the mesh profile re-meshes and rebuilds the case.
 `--until mesh` stops early. `--dry-run` prints the resolved spec.
+
+## Prescreen and the operator decision
+
+`tools/workbench.py prescreen specs/<part>.json` (or `simulate`, which runs it
+anyway) sweeps flow and outlet pressure with duct correlations before any mesh
+exists. It takes seconds and prints a table:
+
+- per flow: mean velocity, Reynolds number and regime, pressure drop (Petukhov
+  friction plus a lumped minor-loss coefficient), outlet bulk temperature, wall
+  and heated-face temperature as a `spread` / `peak` bracket, and the minimum
+  outlet pressure that keeps the wall subcooled by the margin;
+- per flow and outlet pressure: wall subcooling and the idealised pump rise;
+- a suggested CFD starting point: the smallest flow that meets the temperature
+  limit under the spread bound and the smallest swept pressure that keeps the
+  wall subcooled.
+
+If the spec has no `operating.volume_flow_L_min` (or `mass_flow_kg_s`) or no
+outlet pressure, the driver stops with `status: awaiting_operator_decision`.
+The operator picks a point from the table, the agent writes it into the spec
+(optionally with a `decision` block naming who chose it and why), and
+`simulate --run runs/<run>` continues from cache. The equivalent duct is
+`D_h = 4V/A_wetted`, `L` = inlet-to-outlet centroid distance, `u = Q·L/V`;
+override `hydraulic_diameter_m`, `flow_path_length_m`, `solid_thickness_m` or
+`minor_loss_coefficient` in `prescreen` when the part is known better. The
+bracket is a correlation estimate, not a prediction; expect the spread bound to
+be nearer the CFD result for copper.
 
 ## Spec reference
 
@@ -38,13 +64,18 @@ only extends the solve; changing the mesh profile re-meshes and rebuilds the cas
   "numerics":   {"profile": "tet-robust", "overrides": {}},
   "acceptance": {"profile": "project-screening", "overrides": {}},
   "schedule":   {"initial": 100, "chunk": 500, "maximum": 2000, "ranks": 4},
+  "prescreen":  {"flow_range_L_min": [1, 50], "points": 8, "outlet_pressures_bar": [1.01325, 2, 4, 8],
+                 "minor_loss_coefficient": 2.5, "wall_subcooling_margin_K": 10, "supply_pressure_Pa": 101325,
+                 "flow_path_length_m": null, "hydraulic_diameter_m": null, "solid_thickness_m": null},
+  "decision":   {"operator": "name", "note": "why this point was chosen from the prescreen"},
   "initialization": {"temperature_from_case": "runs/<run>/cases/case-xxxx"},
   "unapproved_handoff_ok": false,
   "notes": "free text"
 }
 ```
 
-Only `handoff` is required. Materials default to the handoff's names; `transport`
+Only `handoff` is required. Leave the flow and outlet pressure out to get the
+prescreen table and a stop for the operator. Materials default to the handoff's names; `transport`
 is `constant` or `polynomial` (CoolProp fit; needs `fit_range_K` and
 `reference_pressure_Pa`). Profiles live in `src/pipeline/profiles/`:
 
@@ -66,7 +97,7 @@ runs/<run>/
   geometry/geo-<hash>/     solid.brep fluid.brep coupled.brep coupled.geo manifest.json audit.json
   mesh/mesh-<hash>.msh     + .json metadata
   materials/basis-<hash>.json
-  screen/screen-<hash>.json
+  prescreen/sweep-<hash>.json + .md   correlation sweep and table
   cases/case-<hash>/       OpenFOAM case, settings.json, basis.json, geometry-manifest.json,
                            bounded-review.json, summary.json, audits/, log.*
   results-viewer/<case>-<time>/   viewer export
@@ -96,6 +127,7 @@ Every stage is also a module with a CLI, for diagnosis or reuse:
 | geometry | `python -m src.cad.extract_passage HANDOFF OUT` |
 | mesh | `python -m src.cad.mesh_regions GEOMETRY OUT.msh --wall-size 4e-4 --bulk-size 1.6e-3` |
 | materials | `src.thermal.materials.material_basis(...)`, `python -m src.thermal.fit_water_transport` |
+| prescreen | `src.thermal.prescreen.prescreen(geometry, basis, operating, options)` and `markdown(...)` |
 | case | `python -m src.cfd.cht_case CASE MESH --basis B.json --settings S.json --geometry M.json` |
 | solve | `python -m src.cfd.run_bounded CASE --criteria C.json --maximum N` |
 | audit | `python -m src.verification.audit_fields CASE --criteria C.json --output A.json`, `review_history`, `audit_geometry` |

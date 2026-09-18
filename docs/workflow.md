@@ -13,8 +13,12 @@ Put the STEP in `inputs/` and describe the job in plain language, for example:
 > exterior in vacuum, fixed geometry.
 
 The manager imports the STEP, serves the review, and waits for your approval.
-It then writes `specs/<part>.json` and runs `simulate`. You receive
-`runs/<run>/report.md` and a viewer link.
+It then runs a correlation prescreen: a table of flows and outlet pressures with
+estimated pressure drop, wall and heated-face temperature brackets, and a
+suggested starting point. Nothing is meshed yet. You choose the operating point
+for CFD from that table (or ask for a wider sweep). The manager records your
+choice in the spec and runs `simulate`. You receive `runs/<run>/report.md`
+and a viewer link.
 
 ## Changing the operating point
 

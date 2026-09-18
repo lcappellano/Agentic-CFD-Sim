@@ -18,6 +18,7 @@ class ExtractPassageTests(unittest.TestCase):
             self.assertAlmostEqual(manifest['regions']['fluid']['volume_m3'], bore, places=12)
             self.assertAlmostEqual(manifest['regions']['solid']['volume_m3'], .06 * .04 * .02 - bore, places=12)
             self.assertAlmostEqual(manifest['heated_area_m2'], .0024, places=12)
+            self.assertAlmostEqual(manifest['heated_to_passage_distance_m'], .006, places=9)
             self.assertEqual(manifest['port_outward_normals']['inlet'], [-1., 0., -0.])
             self.assertEqual(manifest['port_outward_normals']['outlet'], [1., -0., 0.])
             self.assertAlmostEqual(manifest['port_hydraulic_diameter_m']['inlet'], .008, places=9)

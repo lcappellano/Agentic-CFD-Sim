@@ -18,6 +18,7 @@ SI units, source and file hashes, `regions` (material, volume, OCC tag, file),
 `boundary_map` (inlet, outlet, heated, outerWalls, interface with tags, areas,
 centroids), `ports` (per-port area, centroid, outward normal, hydraulic diameter),
 `port_outward_normals`, `port_hydraulic_diameter_m`, `heated_area_m2`,
+`heated_to_passage_distance_m` (ligament under the heated face),
 `approved_identity_map`, `checks`.
 
 ## Mesh metadata (`mesh/mesh-*.json`)
@@ -30,6 +31,14 @@ resolved sizing. Boundary layers: none.
 `solid`, `fluid` names; `fluid_properties` at the inlet reference state;
 `solid_properties`; `transport_model` (`constant`/`polynomial`) and optional
 `transport_polynomials` (eight ascending-power coefficients, fit range, errors); sources.
+
+## Prescreen (`prescreen/sweep-*.json`, `.md`)
+
+Equivalent-duct model and its sources, sweep options, per-flow rows (velocity,
+Reynolds, regime, pressure drop split, outlet temperature, wall and heated
+temperature `spread`/`peak`, minimum outlet pressure), the flow × pressure
+matrix (wall subcooling, idealised pump rise), the suggested starting point,
+warnings and assumptions. `status: correlation_estimate` always.
 
 ## Case (`cases/case-*/`)
 

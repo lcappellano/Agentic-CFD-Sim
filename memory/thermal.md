@@ -4,3 +4,4 @@
 - Boiling screening must use wetted-wall temperature with local absolute pressure, not the heated-solid limit or a port-average Δp. A positive local pressure does not imply single-phase validity at the wall.
 - Component total-pressure loss omits outlet jet dissipation; for equal-elevation open reservoirs the idealised pump rise is inlet total pressure minus suction pressure (`pump_budget.py`).
 - Correlation screens (Gnielinski etc.) are not a maximum heated-face temperature for short, one-sided heating; use them only to choose flows to simulate.
+- Prescreen bracket: for the manifold at 40 L/min the spread bound (mean wetted flux) lands near the CFD heated maximum; the peak bound is several times higher. Treat the bracket as a range for choosing sweep points, not as a prediction. Minor-loss coefficient 2.5 on the port dynamic pressure gave the right order of pressure drop for that manifold; tune per part family.

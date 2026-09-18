@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "handoff": "runs/20260918T002459-astra-manifold-review-27f127f8/handoffs/revision-6-4824154e",
+  "label": "manifold-prescreen",
+  "prescreen": {"flow_range_L_min": [2, 50], "points": 8, "outlet_pressures_bar": [1.01325, 2, 4, 8],
+                "minor_loss_coefficient": 2.5, "wall_subcooling_margin_K": 10},
+  "materials": {"transport": "constant"},
+  "mesh": {"profile": "tet-medium"},
+  "numerics": {"profile": "tet-robust"},
+  "schedule": {"maximum": 2000, "ranks": 4}
+}

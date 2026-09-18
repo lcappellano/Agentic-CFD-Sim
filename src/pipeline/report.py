@@ -27,6 +27,16 @@ def write_report(run, state, resolved=None):
         lines += ['', f"Materials: {resolved['materials']['solid']} / {resolved['materials']['fluid']} "
                   f"({resolved['materials']['transport']} transport). Mesh profile {resolved['mesh']['name']}, "
                   f"numerics {resolved['numerics']['name']}, acceptance {resolved['acceptance']['name']}.", '']
+    prescreen = state['stages'].get('prescreen', {})
+    if prescreen.get('table'):
+        lines += ['## Prescreen', '', prescreen['table']]
+        if resolved and resolved.get('decision'):
+            decision = resolved['decision']
+            lines += [f"Operator decision: {decision.get('operator', '?')} — {decision.get('note', '')}", '']
+    if state.get('status') == 'awaiting_operator_decision':
+        lines += ['## Decision needed', '', state.get('decision_prompt', ''), '',
+                  'Add the chosen values to the spec (optionally a `decision` block with `operator` and `note`) and rerun '
+                  f'`tools/workbench.py simulate <spec> --run {run}`. Geometry and materials are reused.', '']
     lines += ['## Stages', '', '| stage | status | output | summary |', '| --- | --- | --- | --- |']
     for name, stage in state['stages'].items():
         summary = ', '.join(f'{k}={v}' for k, v in (stage.get('summary') or {}).items())

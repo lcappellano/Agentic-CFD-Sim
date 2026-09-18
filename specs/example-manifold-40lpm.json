@@ -2,10 +2,64 @@
   "schema_version": 1,
   "handoff": "runs/20260918T002459-astra-manifold-review-27f127f8/handoffs/revision-6-4824154e",
   "label": "manifold-40lpm-8bar",
-  "operating": {"volume_flow_L_min": 40, "outlet_absolute_pressure_bar": 8, "target_pump_pressure_rise_Pa": 600000},
-  "materials": {"transport": "polynomial", "fit_range_K": [278.15, 440], "reference_pressure_Pa": 901325},
-  "mesh": {"profile": "tet-medium",
-           "overrides": {"refinement_boxes": [{"name": "central-channel-gap", "bounds_m": [-0.028, 0.0009, -0.0251, 0.028, 0.0021, 0.0251], "size_m": 0.0002, "transition_m": 0.0006}]}},
-  "numerics": {"profile": "tet-robust"},
-  "schedule": {"initial": 100, "chunk": 500, "maximum": 2000, "ranks": 4}
+  "operating": {
+    "volume_flow_L_min": 40,
+    "outlet_absolute_pressure_bar": 8,
+    "target_pump_pressure_rise_Pa": 600000
+  },
+  "materials": {
+    "transport": "polynomial",
+    "fit_range_K": [
+      278.15,
+      440
+    ],
+    "reference_pressure_Pa": 901325
+  },
+  "mesh": {
+    "profile": "tet-medium",
+    "overrides": {
+      "refinement_boxes": [
+        {
+          "name": "central-channel-gap",
+          "bounds_m": [
+            -0.028,
+            0.0009,
+            -0.0251,
+            0.028,
+            0.0021,
+            0.0251
+          ],
+          "size_m": 0.0002,
+          "transition_m": 0.0006
+        }
+      ]
+    }
+  },
+  "numerics": {
+    "profile": "tet-robust"
+  },
+  "schedule": {
+    "initial": 100,
+    "chunk": 500,
+    "maximum": 2000,
+    "ranks": 4
+  },
+  "prescreen": {
+    "flow_range_L_min": [
+      2,
+      50
+    ],
+    "points": 8,
+    "outlet_pressures_bar": [
+      1.01325,
+      2,
+      4,
+      8
+    ],
+    "minor_loss_coefficient": 2.5
+  },
+  "decision": {
+    "operator": "Luca",
+    "note": "fixed 40 L/min at 8 bar absolute outlet; compare pump rise with 6 bar target"
+  }
 }

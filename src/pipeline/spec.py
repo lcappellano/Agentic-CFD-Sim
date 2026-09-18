@@ -17,7 +17,11 @@ from pathlib import Path
 
 PROFILE_DIR = Path(__file__).resolve().parent / 'profiles'
 TOP_KEYS = {'schema_version', 'handoff', 'label', 'operating', 'materials', 'mesh', 'numerics', 'acceptance',
-            'schedule', 'initialization', 'unapproved_handoff_ok', 'notes'}
+            'schedule', 'initialization', 'prescreen', 'decision', 'unapproved_handoff_ok', 'notes'}
+PRESCREEN_KEYS = {'flows_L_min', 'flow_range_L_min', 'points', 'outlet_pressures_bar', 'minor_loss_coefficient',
+                  'path_length_factor', 'flow_path_length_m', 'hydraulic_diameter_m', 'solid_thickness_m',
+                  'wall_subcooling_margin_K', 'supply_pressure_Pa'}
+DECISION_KEYS = {'operator', 'note', 'decided_at'}
 OPERATING_KEYS = {'inlet_temperature_K', 'inlet_temperature_C', 'outlet_absolute_pressure_Pa', 'outlet_absolute_pressure_bar',
                   'volume_flow_L_min', 'mass_flow_kg_s', 'heat_flux_W_m2', 'total_heat_load_W', 'temperature_limit_K',
                   'temperature_limit_C', 'max_pump_pressure_rise_Pa', 'target_pump_pressure_rise_Pa', 'minimum_saturation_margin_K'}
@@ -107,14 +111,28 @@ def resolve(spec, root):
     if not 0 < schedule['initial'] <= schedule['maximum'] or schedule['chunk'] <= 0 or schedule['ranks'] < 1:
         raise ValueError('schedule requires 0 < initial <= maximum, chunk > 0, ranks >= 1')
     initialization = _section(spec, 'initialization', {'temperature_from_case'})
+    prescreen = _section(spec, 'prescreen', PRESCREEN_KEYS)
+    prescreen.setdefault('wall_subcooling_margin_K', operating.get('minimum_saturation_margin_K', 10))
+    decision = _section(spec, 'decision', DECISION_KEYS)
     return {'handoff': handoff, 'label': spec.get('label') or handoff.parent.parent.name[:40], 'operating': operating,
             'materials': materials, 'mesh': sections['mesh'], 'numerics': sections['numerics'],
             'acceptance': sections['acceptance'], 'schedule': schedule, 'initialization': initialization,
+            'prescreen': prescreen, 'decision': decision, 'handoff_requirements': requirements,
             'unapproved_handoff_ok': bool(spec.get('unapproved_handoff_ok', False)), 'notes': spec.get('notes')}
+
+
+def missing_operating_point(operating):
+    """Keys the operator still has to choose before CFD (empty when the point is fixed)."""
+    missing = []
+    if not any(k in operating for k in ('volume_flow_L_min', 'mass_flow_kg_s')):
+        missing.append('operating.volume_flow_L_min (or mass_flow_kg_s)')
+    if not any(k in operating for k in ('outlet_absolute_pressure_bar', 'outlet_absolute_pressure_Pa')):
+        missing.append('operating.outlet_absolute_pressure_bar (or _Pa)')
+    return missing
 
 
 def describe(resolved):
     """Compact, JSON-safe view of a resolved spec for state.json and dry runs."""
-    view = copy.deepcopy({k: v for k, v in resolved.items() if k != 'handoff'})
+    view = copy.deepcopy({k: v for k, v in resolved.items() if k not in ('handoff', 'handoff_requirements')})
     view['handoff'] = str(resolved['handoff'])
     return view
