@@ -173,7 +173,8 @@ def positive(value):
 
 
 def bounds_errors(req):
-    """Field-specific diagnostics; incomplete drafts remain saveable."""
+    """Field-specific diagnostics; incomplete drafts remain saveable. Blank flow or pressure
+    bounds are valid: the pipeline estimates them from the correlation prescreen before CFD."""
     errors = {}
     pump_limit = req.get('max_pump_pressure_rise_Pa')
     if pump_limit is not None and not positive(pump_limit):
@@ -186,25 +187,26 @@ def bounds_errors(req):
         gauge = prefix == 'pressure' and pressure_input and pressure_input['mode'] == 'gauge'
         values = pressure_input['bounds_Pa'] if prefix == 'pressure' and pressure_input else req[key]
         lower, upper = values
+        entered = any(value is not None for value in values)
         reference = pressure_input['reference_pressure_Pa'] if gauge else None
         display_scale = 100000 if prefix == 'pressure' else 1
         if gauge:
             unit = 'bar gauge'
-            if not positive(reference):
+            if entered and not positive(reference):
                 errors['pressure_reference'] = 'Enter an ambient/reference absolute pressure greater than 0 bar to convert gauge pressure.'
         for field, position, value in ((prefix + '_min', 'lower', lower),
                                        (prefix + '_max', 'upper', upper)):
             if value is None:
-                errors[field] = f'Enter the {label.lower()} {position} bound in {unit}.'
-            elif type(value) not in (int, float) or not math.isfinite(value):
-                errors[field] = f'{label} {position} bound must be a finite number in {unit}.'
+                continue  # blank: estimated by the prescreen before CFD
+            if type(value) not in (int, float) or not math.isfinite(value):
+                errors[field] = f'{label} {position} bound must be a finite number in {unit}, or blank to have it estimated.'
             elif gauge:
                 if positive(reference) and value + reference <= 0:
                     errors[field] = (f'{label} {position} bound corresponds to {(value + reference)/display_scale:g} bar absolute. '
                                      'The converted absolute pressure must be greater than 0 bar.')
             elif value <= 0:
                 errors[field] = (f'{label} {position} bound is {value/display_scale:g} {unit}. '
-                                 f'Enter a value greater than 0 {unit}.')
+                                 f'Enter a value greater than 0 {unit}, or leave it blank to have it estimated.')
                 if prefix == 'pressure':
                     errors[field] += (' If you meant gauge pressure, convert it using your '
                                       'ambient/reference pressure.')
@@ -212,10 +214,11 @@ def bounds_errors(req):
             errors[prefix + '_min'] = (f'{label} lower bound ({lower/display_scale:g} {unit}) exceeds '
                                       f'the upper bound ({upper/display_scale:g} {unit}). Correct the range.')
         if prefix == 'pressure' and pressure_input and not any(k.startswith('pressure_') for k in errors):
-            converted = [value + reference for value in values] if gauge else values
+            converted = [None if value is None else (value + reference if gauge else value) for value in values]
             actual = req[key]
-            if any(not positive(value) for value in actual) or any(
-                    not math.isclose(value, expected, rel_tol=1e-12, abs_tol=1e-9)
+            if not isinstance(actual, list) or len(actual) != 2 or any(
+                    (value is not None) if expected is None else
+                    (not positive(value) or not math.isclose(value, expected, rel_tol=1e-12, abs_tol=1e-9))
                     for value, expected in zip(actual, converted)):
                 errors['pressure_min'] = 'Stored absolute pressure does not match the displayed pressure input and reference. Save the pressure fields again.'
             if not gauge and pressure_input['reference_pressure_Pa'] is not None:

@@ -15,7 +15,7 @@ import sys
 from src.foam.hashing import digest
 
 HERE = Path(__file__).resolve().parent
-ADAPTER_VERSION = "1"
+ADAPTER_VERSION = "2"
 
 
 def backend():
@@ -96,44 +96,85 @@ def circular_loop(gmsh, curves, tolerance):
     return center, radius, normal
 
 
-def virtual_ports(gmsh, faces, tolerance, segments):
-    result = []
-    seen = set()
-    for face in faces:
-        if face["surface_type"] != "Plane":
-            continue
-        tag = int(face["id"].split(":")[1])
+def loop_extent(gmsh, curve_tags):
+    """Bounding-box diagonal of a curve loop; the outer wire of a face always has the largest."""
+    points = []
+    for tag in curve_tags:
+        low, high = gmsh.model.getBoundingBox(1, tag)[:3], gmsh.model.getBoundingBox(1, tag)[3:]
+        points.extend([list(low), list(high)])
+    return norm(sub(bounds(points)[3:], bounds(points)[:3]))
+
+
+def add_hole_caps(gmsh, faces, tolerance):
+    """Cap every inner loop of a planar face with a plane surface; return {cap_tag: record}.
+
+    Inner loops are holes in the face: through passages, blind holes or pockets.
+    The user decides which are coolant ports; the extractor checks connectivity.
+    """
+    planar = {int(f["id"].split(":")[1]): f for f in faces if f["surface_type"] == "Plane"}
+    caps, seen = {}, set()
+    for tag, face in planar.items():
         _, loops = gmsh.model.occ.getCurveLoops(tag)
-        for loop in loops:
-            curve_tags = sorted(abs(int(x)) for x in loop)
+        if len(loops) < 2:
+            continue
+        loops = [sorted(abs(int(x)) for x in loop) for loop in loops]
+        outer = max(loops, key=lambda loop: loop_extent(gmsh, loop))
+        for curve_tags in loops:
             key = tuple(curve_tags)
-            if key in seen:
+            if curve_tags == outer or key in seen:
                 continue
             seen.add(key)
-            fitted = circular_loop(gmsh, curve_tags, tolerance)
-            if fitted is None:
+            try:
+                cap = gmsh.model.occ.addPlaneSurface([gmsh.model.occ.addCurveLoop(list(curve_tags))])
+            except Exception:  # noqa: BLE001 - non-planar or open wire: not a cap
                 continue
-            center, radius, normal = fitted
-            # A center inside a planar CAD face denotes an existing disk, not a hole.
-            if any(gmsh.model.isInside(2, int(f["id"].split(":")[1]), center) > 0
-                   for f in faces if f["surface_type"] == "Plane"
-                   and abs(dot(sub(f["centroid_mm"], center), normal)) < tolerance):
-                continue
-            axis = [1., 0., 0.] if abs(normal[0]) < .8 else [0., 1., 0.]
-            u = cross(normal, axis)
-            u = mul(u, 1/norm(u))
-            v = cross(normal, u)
-            ring = [add(center, add(mul(u, radius*math.cos(2*math.pi*i/segments)),
-                                    mul(v, radius*math.sin(2*math.pi*i/segments)))) for i in range(segments)]
-            points = [center] + ring
-            result.append({"id": "port:" + "-".join(map(str, curve_tags)),
-                           "kind": "virtual_port", "candidate": True,
-                           "source_curve_tags": curve_tags, "adjacent_face_id": face["id"],
-                           "surface_type": "VirtualDisk", "area_mm2": math.pi*radius**2,
-                           "centroid_mm": center, "radius_mm": radius, "normal": normal,
-                           "bounds_mm": bounds(points),
-                           "positions": [x for p in points for x in p],
-                           "triangles": [x for i in range(segments) for x in (0, i+1, (i+1)%segments+1)]})
+            caps[cap] = {"curve_tags": curve_tags, "adjacent_face_id": face["id"],
+                         "circle": circular_loop(gmsh, curve_tags, tolerance)}
+    gmsh.model.occ.synchronize()
+    for cap in list(caps):
+        centre = list(map(float, gmsh.model.occ.getCenterOfMass(2, cap)))
+        normal = list(map(float, gmsh.model.getNormal(cap, [0.5, 0.5])))
+        # A centre lying on a coplanar CAD face is an imprinted island, not an opening.
+        covered = any(gmsh.model.isInside(2, tag, centre) > 0 for tag, f in planar.items()
+                      if abs(dot(sub(f["centroid_mm"], centre), normal)) < tolerance)
+        if covered:
+            gmsh.model.occ.remove([(2, cap)])
+            del caps[cap]
+        else:
+            caps[cap].update(centroid=centre, normal=normal)
+    gmsh.model.occ.synchronize()
+    return caps
+
+
+def display_triangles(gmsh, tag, nodes):
+    types, _, connectivity = gmsh.model.mesh.getElements(2, tag)
+    node_ids = []
+    for kind, element_nodes in zip(types, connectivity):
+        if int(kind) != 2:
+            raise RuntimeError("Unexpected non-linear/non-triangle display elements")
+        node_ids.extend(map(int, element_nodes))
+    if not node_ids:
+        raise RuntimeError(f"Surface {tag} failed display tessellation")
+    unique = sorted(set(node_ids))
+    index = {node: i for i, node in enumerate(unique)}
+    return [x for node in unique for x in nodes[node]], [index[node] for node in node_ids]
+
+
+def virtual_ports(gmsh, caps, nodes):
+    result = []
+    for cap, record in sorted(caps.items()):
+        positions, triangles = display_triangles(gmsh, cap, nodes)
+        entry = {"id": "port:" + "-".join(map(str, record["curve_tags"])),
+                 "kind": "virtual_port", "candidate": True,
+                 "source_curve_tags": list(record["curve_tags"]), "adjacent_face_id": record["adjacent_face_id"],
+                 "surface_type": "VirtualCap", "shape": "circle" if record["circle"] else "polygon",
+                 "area_mm2": float(gmsh.model.occ.getMass(2, cap)),
+                 "centroid_mm": record["centroid"], "normal": record["normal"],
+                 "bounds_mm": list(map(float, gmsh.model.getBoundingBox(2, cap))),
+                 "positions": positions, "triangles": triangles}
+        if record["circle"]:
+            entry["radius_mm"] = float(record["circle"][1])
+        result.append(entry)
     return result
 
 
@@ -175,29 +216,17 @@ def preview(source, output, relative_size=.035, circle_segments=64):
         gmsh.option.setNumber("Mesh.Algorithm", 6)
         gmsh.option.setNumber("Mesh.ElementOrder", 1)
         gmsh.option.setNumber("Mesh.RecombineAll", 0)
+        faces = [{"id": f"face:{tag}", "kind": "cad_face", "surface_type": gmsh.model.getType(2, tag),
+                  "area_mm2": float(gmsh.model.occ.getMass(2, tag)),
+                  "centroid_mm": list(map(float, gmsh.model.occ.getCenterOfMass(2, tag))),
+                  "bounds_mm": list(map(float, gmsh.model.getBoundingBox(2, tag)))} for _, tag in entities]
+        caps = add_hole_caps(gmsh, faces, max(1e-6, diagonal*1e-7))
         gmsh.model.mesh.generate(2)  # DISPLAY surface tessellation, never volume/CFD meshing.
         node_tags, coords, _ = gmsh.model.mesh.getNodes()
         nodes = {int(tag): list(map(float, coords[3*i:3*i+3])) for i, tag in enumerate(node_tags)}
-        faces = []
-        for _, tag in entities:
-            types, _, connectivity = gmsh.model.mesh.getElements(2, tag)
-            node_ids = []
-            for kind, element_nodes in zip(types, connectivity):
-                if int(kind) != 2:
-                    raise RuntimeError("Unexpected non-linear/non-triangle display elements")
-                node_ids.extend(map(int, element_nodes))
-            if not node_ids:
-                raise RuntimeError(f"CAD face {tag} failed display tessellation")
-            unique = sorted(set(node_ids))
-            index = {node: i for i, node in enumerate(unique)}
-            faces.append({"id": f"face:{tag}", "kind": "cad_face",
-                          "surface_type": gmsh.model.getType(2, tag),
-                          "area_mm2": float(gmsh.model.occ.getMass(2, tag)),
-                          "centroid_mm": list(map(float, gmsh.model.occ.getCenterOfMass(2, tag))),
-                          "bounds_mm": list(map(float, gmsh.model.getBoundingBox(2, tag))),
-                          "positions": [x for node in unique for x in nodes[node]],
-                          "triangles": [index[node] for node in node_ids]})
-        ports = virtual_ports(gmsh, faces, max(1e-6, diagonal*1e-7), circle_segments)
+        for face in faces:
+            face["positions"], face["triangles"] = display_triangles(gmsh, int(face["id"].split(":")[1]), nodes)
+        ports = virtual_ports(gmsh, caps, nodes)
         importer = {"name": "gmsh", "version": version, "api_version": gmsh.__version__,
                     "adapter_version": ADAPTER_VERSION,
                     "adapter_sha256": digest(__file__),
@@ -212,8 +241,7 @@ def preview(source, output, relative_size=.035, circle_segments=64):
                   "faces": faces, "virtual_faces": ports,
                   "warnings": ["Surface triangles are for display and face picking only; no CFD mesh or simulation was created.",
                                "Face IDs are valid only with this exact import fingerprint; re-imported or changed CAD requires review.",
-                               "Virtual disks are unconfirmed circular-opening candidates; blind holes and fillets can also produce candidates. They do not alter or cap source CAD.",
-                               "Only planar circular boundary loops are supported as virtual openings. Verify units, scale, connectivity and boundary choices before simulation."]}
+                               "Virtual caps are unconfirmed opening candidates (every planar hole loop); blind holes also produce candidates. They do not alter the source CAD."]}
         if digest(source) != source_hash:
             raise RuntimeError("Input STEP changed during import")
         output.parent.mkdir(parents=True, exist_ok=True)

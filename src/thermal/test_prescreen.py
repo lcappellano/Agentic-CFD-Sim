@@ -41,7 +41,7 @@ class CorrelationTests(unittest.TestCase):
         self.assertAlmostEqual(row['conduction_rise_K'], 1e5 * .006 / 394)
         self.assertEqual(row['minor_pressure_drop_Pa'], 0)
 
-    def test_sweep_matrix_recommendation_and_table(self):
+    def test_sweep_matrix_estimate_and_table(self):
         basis = material_basis('copper', 'water', 283.15)
         operating = {'inlet_temperature_K': 283.15, 'temperature_limit_K': 473.15, 'heat_flux_W_m2': 1e6, 'max_pump_pressure_rise_Pa': 8e5}
         result = prescreen(pipe_geometry(), basis, operating, {'flow_range_L_min': [1, 40], 'points': 5, 'outlet_pressures_bar': [1, 4]})
@@ -51,19 +51,21 @@ class CorrelationTests(unittest.TestCase):
         self.assertEqual(drops, sorted(drops))
         walls = [r['wall_temperature_K']['spread'] for r in result['rows']]
         self.assertEqual(walls, sorted(walls, reverse=True))
-        rec = result['recommendation']
-        self.assertIsNotNone(rec['flow_L_min'])
-        self.assertIn(rec['outlet_absolute_pressure_Pa'], result['pressures_Pa'])
+        choice = result['autofill']
+        self.assertIsNotNone(choice['volume_flow_L_min'])
+        self.assertEqual(result['pressures_Pa'], [1e5, 4e5])  # explicit spec list is kept as is
         text = markdown(result, operating)
-        self.assertIn('Suggested CFD starting point', text)
+        self.assertIn('Estimated operating point', text)
         self.assertIn('| flow L/min |', text)
 
     def test_impossible_sweep_reports_no_point(self):
         basis = material_basis('copper', 'water', 283.15)
         operating = {'inlet_temperature_K': 283.15, 'temperature_limit_K': 300, 'heat_flux_W_m2': 1e7}
         result = prescreen(pipe_geometry(), basis, operating, {'flow_range_L_min': [1, 2], 'points': 2})
-        self.assertIsNone(result['recommendation']['flow_L_min'])
+        self.assertIsNone(result['autofill']['volume_flow_L_min'])
         self.assertIn('default list', result['pressure_source'])
+        unranged = prescreen(pipe_geometry(), basis, operating, {'points': 2})
+        self.assertTrue(any('No flow estimate' in warning for warning in unranged['warnings']))
 
 
 if __name__ == '__main__':

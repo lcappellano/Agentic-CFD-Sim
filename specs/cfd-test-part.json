@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "handoff": "runs/20260918T214652-cfd-test-part-95a4ebd0/handoffs/revision-3-8f7510b7",
+  "label": "cfd-test-part",
+  "prescreen": {
+    "flow_range_L_min": [
+      0.001,
+      1.0
+    ],
+    "points": 12,
+    "outlet_pressures_bar": [
+      2,
+      3,
+      5,
+      7
+    ],
+    "minor_loss_coefficient": 2.5,
+    "wall_subcooling_margin_K": 10
+  },
+  "materials": {
+    "transport": "constant"
+  },
+  "mesh": {
+    "profile": "tet-coarse",
+    "overrides": {
+      "wall_size_m": 0.0002,
+      "bulk_size_m": 0.0005,
+      "transition_distance_m": 0.0005
+    }
+  },
+  "numerics": {
+    "profile": "laminar"
+  },
+  "acceptance": {
+    "profile": "project-screening"
+  },
+  "schedule": {
+    "initial": 500,
+    "chunk": 500,
+    "maximum": 3000,
+    "ranks": 4
+  },
+  "operating": {
+    "volume_flow_L_min": 0.0035,
+    "outlet_absolute_pressure_bar": 2.0
+  },
+  "decision": {
+    "operator": "luca",
+    "note": "Prescreen option 1: smallest swept flow that meets the 385 K limit under the spread bound; laminar, Re about 47.",
+    "decided_at": "2026-09-18"
+  },
+  "initialization": {
+    "temperature_from_prescreen": true
+  }
+}

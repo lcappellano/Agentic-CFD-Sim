@@ -27,7 +27,7 @@ def review(case, audit_path, criteria_path):
     settings_path = case / 'settings.json'
     settings = json.loads(settings_path.read_text())
     hashes[str(settings_path)] = digest(settings_path)
-    dissipation = 'omega' if settings.get('turbulence_model') == 'kOmegaSST_spalding' else 'epsilon'
+    model = settings.get('turbulence_model', 'kEpsilon')
     checks = []
     def add(name, ok, evidence):
         checks.append({'check':name, 'status':'not checked' if ok is None else 'pass' if ok else 'fail', 'evidence':evidence})
@@ -71,7 +71,11 @@ def review(case, audit_path, criteria_path):
             if found and iteration is not None and start<=iteration<=final:
                 key = str(region)+':'+found.group(1)
                 residuals.setdefault(key,[]).append((float(found.group(2)),float(found.group(3)),iteration))
-    required = {'fluid:Ux','fluid:Uy','fluid:Uz','fluid:p_rgh','fluid:h','fluid:k','fluid:'+dissipation,'solid:h'}
+    required = {'fluid:Ux', 'fluid:Uy', 'fluid:Uz', 'fluid:p_rgh', 'fluid:h', 'solid:h'}
+    if model == 'kEpsilon':
+        required |= {'fluid:k', 'fluid:epsilon'}
+    elif model == 'kOmegaSST_spalding':
+        required |= {'fluid:k', 'fluid:omega'}
     add('residual_equations_present', required<=set(residuals), {'required':sorted(required),'present':sorted(residuals)})
     maxima = {key:{'initial':max(v[0] for v in rows),'linear_final':max(v[1] for v in rows),'count':len(rows)}
               for key,rows in residuals.items()}

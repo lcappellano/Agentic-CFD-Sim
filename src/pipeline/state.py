@@ -49,6 +49,9 @@ def summary_text(state):
         lines.append(f'  {name:<10} {status:<8}{extra}')
     if state.get('status') == 'awaiting_operator_decision':
         lines.append('DECISION NEEDED: ' + state.get('decision_prompt', 'choose the operating point in the spec and rerun'))
+    if state.get('autofill'):
+        filled = state['autofill']['filled']
+        lines.append('autofill: ' + ', '.join(f'{k}={v:.4g}' for k, v in filled.items()) + '  (prescreen estimate; override in operating)')
     case = state.get('case')
     if case:
         lines.append(f"result: {case['status']}  stop={case.get('stop_reason')}  iteration={case.get('iteration')}")

@@ -10,12 +10,20 @@ and `memory/manager.md` at session start; nothing else is required.
 1. Put the STEP in `inputs/`. `tools/workbench.py review-import --step ...`,
    serve the viewer, and let the **user** select ports and heated faces and
    approve. Never approve for the user. `review-handoff` writes the package.
-2. Write a spec in `specs/<part>.json` (see `docs/pipeline.md`) with the
-   prescreen ranges but **without** a flow or outlet pressure.
-3. `tools/workbench.py prescreen specs/<part>.json`. Show the printed table to
-   the user and ask them to choose the CFD operating point. Do not choose for them.
-4. Put their choice in `operating` and a `decision` block, then
-   `tools/workbench.py simulate specs/<part>.json --run runs/<run>`; then `status runs/<run>`.
+2. Write a spec in `specs/<part>.json` (see `docs/pipeline.md`). Flow and
+   outlet pressure are optional: values the review fixed come from the handoff,
+   blank ones are estimated by the prescreen (`state.autofill`, and the report).
+3. `tools/workbench.py simulate specs/<part>.json`; then `status runs/<run>`.
+   Tell the user which values were estimated and why (the report lists the reasons).
+4. If the user wants to choose the point, set `decision.required: true`, run
+   `tools/workbench.py prescreen specs/<part>.json`, show them the printed table
+   and never choose for them; put their choice in `operating` and a `decision`
+   block, then `simulate ... --run runs/<run>`. The driver also stops for a
+   decision when the estimate is implausible (velocity, outlet pressure,
+   pressure drop), exceeds a review bound or the pump limit, or no feasible
+   point exists: show the user the `STOP:` reasons and the table; never cap a
+   value for them. They may accept the estimate as it is, or raise the
+   `prescreen.plausible_*` thresholds for that spec.
 5. Read `state.json`/`report.md`. Act on the stop reason. Do not read solver
    logs unless a stage failed; the stage log is `runs/<run>/logs/<stage>.log`.
 

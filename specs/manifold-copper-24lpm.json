@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "handoff": "runs/20260918T002459-astra-manifold-review-27f127f8/handoffs/revision-6-4824154e",
+  "materials": {
+    "solid": "copper",
+    "fluid": "water",
+    "transport": "constant"
+  },
+  "mesh": {
+    "profile": "tet-medium",
+    "overrides": {
+      "refinement_boxes": [
+        {
+          "name": "central-channel-gap",
+          "bounds_m": [
+            -0.028,
+            0.0009,
+            -0.0251,
+            0.028,
+            0.0021,
+            0.0251
+          ],
+          "size_m": 0.0002,
+          "transition_m": 0.0006
+        }
+      ]
+    }
+  },
+  "numerics": {
+    "profile": "tet-robust"
+  },
+  "acceptance": {
+    "profile": "project-screening"
+  },
+  "schedule": {
+    "initial": 100,
+    "chunk": 500,
+    "maximum": 3000,
+    "ranks": 8
+  },
+  "prescreen": {
+    "flow_range_L_min": [
+      10,
+      60
+    ],
+    "points": 6,
+    "outlet_pressures_bar": [
+      2,
+      4,
+      8
+    ],
+    "minor_loss_coefficient": 2.5
+  },
+  "initialization": {
+    "temperature_from_prescreen": true
+  },
+  "notes": "Replicates the September 2026 SU2 report sweep (10 MW/m2 on the 52x52 mm face, water in at 20 C, 8 bar absolute outlet) with pure copper. Inlet temperature and outlet pressure override the revision-6 handoff values (10 C, 1 atm); the review's flow bounds are stored in kg/s by mistake and are bypassed by the explicit operating point.",
+  "label": "manifold-copper-24lpm-8bar",
+  "operating": {
+    "volume_flow_L_min": 24,
+    "outlet_absolute_pressure_bar": 8,
+    "inlet_temperature_C": 20
+  },
+  "decision": {
+    "operator": "Luca",
+    "note": "Report sweep point 24 L/min (report local channel speeds 11.9/14.9/19.9 m/s ~ 24/30/40 L/min total)."
+  }
+}

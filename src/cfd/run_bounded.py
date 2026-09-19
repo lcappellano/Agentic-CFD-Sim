@@ -13,6 +13,7 @@ from pathlib import Path
 
 from src.cfd.run_case import run, FIXED_FILES
 from src.cfd.summarize_case import summarize
+from src.cfd.turbulence import residual_equations
 from src.foam.fields import PolyMesh
 from src.foam.hashing import digest
 from src.foam.logs import residual_maxima
@@ -70,8 +71,7 @@ def assess(case, summary, criteria):
     margin = criteria['local_liquid_saturation_margin_K']
     phase = {'bulk': phase_counts(bulk_t, bulk_p, margin), 'wetted': phase_counts(wall_t, wall_p, margin)}
     maxima = residual_maxima(case, float(latest.name), window)
-    dissipation = 'omega' if settings.get('turbulence_model') == 'kOmegaSST_spalding' else 'epsilon'
-    expected = {f'fluid:{name}' for name in ('Ux', 'Uy', 'Uz', 'h', 'p_rgh', 'k', dissipation)} | {'solid:h'}
+    expected = residual_equations(settings.get('turbulence_model', 'kEpsilon'))
     last, ranges = summary['monitor_last'], summary['final_window_ranges']
     expected_heat = settings['heat_flux_W_m2'] * settings['heated_area_m2']
     energy = summary.get('energy_imbalance_with_port_diffusion_fraction')

@@ -20,7 +20,7 @@ class NumericalVariantTests(unittest.TestCase):
         (self.source / 'constant/fluid/polyMesh/points').write_text('unchanged mesh')
         (self.source / 'system/solid/fvSolution').write_text('relaxationFactors { equations { h 0.3; } }')
         (self.source / 'system/fluid/fvSolution').write_text('solvers { h { tolerance 1e-8; } } relaxationFactors { fields { p_rgh 0.2; } equations { U 0.3; h 0.3; k 0.7; } }')
-        (self.source / 'settings.json').write_text(json.dumps({'solid_enthalpy_relaxation': .3, 'fluid_enthalpy_relaxation': .3, 'heat_flux_W_m2': 1e7}))
+        (self.source / 'settings.json').write_text(json.dumps({'solid_enthalpy_relaxation': .3, 'fluid_enthalpy_relaxation': .3, 'heat_flux_W_m2': 1e7, 'turbulence_model': 'kOmegaSST_spalding'}))
         (self.source / 'manifest.json').write_text(json.dumps({'simulation_executed': True, 'solver_logs': ['old']}))
         self.review = {'status': 'iteration_limit_not_converged', 'chunks': [{'iteration': 600., 'phase_margin_screen_pass': True, 'transport_validity': {'within_declared_range': True}}]}
         self.save_review()
@@ -54,6 +54,21 @@ class NumericalVariantTests(unittest.TestCase):
         self.assertIn('fields { p_rgh 0.2; }', solution)
         self.assertIn('solvers { h { tolerance 1e-8; } }', solution)
         self.assertEqual(set(result['changes']), {'solid_enthalpy_relaxation', 'fluid_enthalpy_relaxation'})
+
+    def test_laminar_checkpoint_needs_no_turbulence_fields(self):
+        settings = json.loads((self.source / 'settings.json').read_text())
+        settings['turbulence_model'] = 'laminar'
+        (self.source / 'settings.json').write_text(json.dumps(settings))
+        for name in ['k', 'omega', 'nut', 'alphat']:
+            (self.source / '600/fluid' / name).unlink()
+        clone(self.source, self.target, '600', 1.0, 1.0)
+        self.assertIn('h 1.0;', (self.target / 'system/solid/fvSolution').read_text())
+
+    def test_constant_transport_checkpoint_is_clonable(self):
+        self.review['chunks'][0]['transport_validity'] = {'within_declared_range': None, 'model': 'constant'}
+        self.save_review()
+        clone(self.source, self.target, '600', .9)
+        self.assertTrue((self.target / '0/fluid/T').exists())
 
     def test_bad_relaxation_and_missing_state_rejected(self):
         for value in [True, float('nan'), 0, 1.1]:

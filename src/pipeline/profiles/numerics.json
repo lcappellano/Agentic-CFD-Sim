@@ -4,30 +4,63 @@
   "profiles": {
     "hex-kepsilon": {
       "description": "Aligned hexahedral meshes: kEpsilon, full corrected solid diffusion, standard relaxation (fixed-demo baseline).",
-      "turbulence_model": "kEpsilon", "turbulence_intensity": 0.05,
-      "solid_gradient": "leastSquares", "solid_nonorthogonal_correctors": 3,
-      "solid_enthalpy_relaxation": 0.9, "fluid_enthalpy_relaxation": 0.9,
-      "velocity_relaxation": 0.7, "pressure_relaxation": 0.3,
+      "turbulence_model": "kEpsilon",
+      "turbulence_intensity": 0.05,
+      "solid_gradient": "leastSquares",
+      "solid_nonorthogonal_correctors": 3,
+      "solid_enthalpy_relaxation": 0.9,
+      "fluid_enthalpy_relaxation": 0.9,
+      "velocity_relaxation": 0.7,
+      "pressure_relaxation": 0.3,
       "fluid_laplacian": "Gauss linear limited 0.5",
-      "velocity_initialization": "uniform", "write_interval": 100, "field_minmax_interval": 20
+      "velocity_initialization": "uniform",
+      "write_interval": 100,
+      "field_minmax_interval": 20
     },
     "tet-robust": {
-      "description": "Tetrahedral passages: SST with Spalding walls, cell-limited solid gradient, potential-flow velocity start, low momentum/pressure relaxation (manifold fixed-40 case).",
-      "turbulence_model": "kOmegaSST_spalding", "turbulence_intensity": 0.05,
-      "solid_gradient": "cellLimited Gauss linear 1", "solid_nonorthogonal_correctors": 2,
-      "solid_enthalpy_relaxation": 0.9, "fluid_enthalpy_relaxation": 0.9,
-      "velocity_relaxation": 0.3, "pressure_relaxation": 0.2,
+      "description": "Tetrahedral passages: SST with Spalding walls, cell-limited solid gradient, potential-flow velocity start, low momentum/pressure relaxation (manifold fixed-40 case). Note: the cell-limited solid gradient floors the solid h residual near 1e-3; once the field is stable, restart with solid_gradient \"Gauss linear\" if the residual gate blocks.",
+      "turbulence_model": "kOmegaSST_spalding",
+      "turbulence_intensity": 0.05,
+      "solid_gradient": "cellLimited Gauss linear 1",
+      "solid_nonorthogonal_correctors": 2,
+      "solid_enthalpy_relaxation": 0.9,
+      "fluid_enthalpy_relaxation": 0.9,
+      "velocity_relaxation": 0.3,
+      "pressure_relaxation": 0.2,
       "fluid_laplacian": "Gauss linear limited 0.5",
-      "velocity_initialization": "potential", "write_interval": 100, "field_minmax_interval": 10
+      "velocity_initialization": "potential",
+      "write_interval": 100,
+      "field_minmax_interval": 10
     },
     "tet-robust-slow-energy": {
-      "description": "tet-robust with enthalpy relaxation 0.3 for the first startup chunk when 0.9 diverges; switch to tet-robust via numerical_variant afterwards.",
-      "turbulence_model": "kOmegaSST_spalding", "turbulence_intensity": 0.05,
-      "solid_gradient": "cellLimited Gauss linear 1", "solid_nonorthogonal_correctors": 2,
-      "solid_enthalpy_relaxation": 0.3, "fluid_enthalpy_relaxation": 0.3,
-      "velocity_relaxation": 0.3, "pressure_relaxation": 0.2,
+      "description": "tet-robust with enthalpy relaxation 0.3 for the first startup chunk when 0.9 diverges; switch to tet-robust via numerical_variant afterwards. Note: the cell-limited solid gradient floors the solid h residual near 1e-3; once the field is stable, restart with solid_gradient \"Gauss linear\" if the residual gate blocks.",
+      "turbulence_model": "kOmegaSST_spalding",
+      "turbulence_intensity": 0.05,
+      "solid_gradient": "cellLimited Gauss linear 1",
+      "solid_nonorthogonal_correctors": 2,
+      "solid_enthalpy_relaxation": 0.3,
+      "fluid_enthalpy_relaxation": 0.3,
+      "velocity_relaxation": 0.3,
+      "pressure_relaxation": 0.2,
       "fluid_laplacian": "Gauss linear limited 0.5",
-      "velocity_initialization": "potential", "write_interval": 100, "field_minmax_interval": 10
+      "velocity_initialization": "potential",
+      "write_interval": 100,
+      "field_minmax_interval": 10
+    },
+    "laminar": {
+      "description": "Laminar passages (prescreen Re below 2300): no turbulence model, potential-flow start, unlimited solid gradient (cellLimited floors the solid h residual near 2e-3 on tet meshes), enthalpy relaxation 1.0 (0.9 crawled: e-folding ~3000 iterations on the square-channel bar).",
+      "turbulence_model": "laminar",
+      "turbulence_intensity": 0.05,
+      "solid_gradient": "Gauss linear",
+      "solid_nonorthogonal_correctors": 2,
+      "solid_enthalpy_relaxation": 1.0,
+      "fluid_enthalpy_relaxation": 1.0,
+      "velocity_relaxation": 0.5,
+      "pressure_relaxation": 0.3,
+      "fluid_laplacian": "Gauss linear limited 0.5",
+      "velocity_initialization": "potential",
+      "write_interval": 100,
+      "field_minmax_interval": 10
     }
   }
 }

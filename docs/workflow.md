@@ -13,11 +13,20 @@ Put the STEP in `inputs/` and describe the job in plain language, for example:
 > exterior in vacuum, fixed geometry.
 
 The manager imports the STEP, serves the review, and waits for your approval.
-It then runs a correlation prescreen: a table of flows and outlet pressures with
-estimated pressure drop, wall and heated-face temperature brackets, and a
-suggested starting point. Nothing is meshed yet. You choose the operating point
-for CFD from that table (or ask for a wider sweep). The manager records your
-choice in the spec and runs `simulate`. You receive `runs/<run>/report.md`
+Flow and return pressure are optional in the review: leave them blank if you do
+not know them, enter equal values to fix them, or a range to constrain the
+estimate. The manager then runs a correlation prescreen: a table of flows and
+outlet pressures with estimated pressure drop, wall and heated-face temperature
+brackets, and an estimated operating point (the smallest flow that keeps the
+heated face within 75 % of the allowed rise, and a return pressure that keeps
+the wall subcooled). Blank values are filled from that estimate and CFD starts;
+the report states the values and the reasoning. If the estimate needs an
+implausible velocity, outlet pressure or pressure drop, exceeds a bound you
+gave, or beats the pump limit, nothing is capped: the manager stops, shows you
+the table and the estimate with the reasons, and you decide (run it as it is,
+change the design, or raise the plausibility thresholds). If you would rather
+choose the point yourself every time, say so: the manager stops after the
+prescreen, shows you the table, and records your choice in the spec. You receive `runs/<run>/report.md`
 and a viewer link.
 
 ## Changing the operating point

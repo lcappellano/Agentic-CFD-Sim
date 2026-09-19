@@ -5,7 +5,9 @@ from pathlib import Path
 from src.pipeline.status import DESCRIPTIONS
 
 NEXT_STEPS = {
-    'iteration_limit_not_converged': 'Raise schedule.maximum in the spec and rerun; the solve continues from the last chunk.',
+    'iteration_limit_not_converged': ('Raise schedule.maximum and rerun (continues from the last chunk). If the energy pickup is still '
+                                      'crawling, set initialization.temperature_from_prescreen: true for a fresh case, or clone the '
+                                      'checkpoint with numerical_variant and enthalpy relaxation 1.0.'),
     'numerical_screen_pass_requires_independent_model_mesh_review': 'Run a paired finer mesh (mesh.profile tet-fine) and compare; review y+ and property ranges in the audit.',
     'numerical_screen_pass_but_phase_invalid': 'Wall temperatures reach saturation: raise outlet pressure or flow, or the single-phase model does not apply.',
     'persistent_single_phase_model_violation_not_design_failure': 'Liquid screen fails in consecutive chunks: change operating point; do not continue this case.',
@@ -22,11 +24,19 @@ def write_report(run, state, resolved=None):
     if resolved:
         op = resolved['operating']
         lines += ['## Operating point', '', '| quantity | value |', '| --- | --- |']
+        filled = (state.get('autofill') or {}).get('filled') or {}
         for key, value in op.items():
-            lines.append(f'| {key} | {value} |')
+            lines.append(f'| {key} | {value}{" (estimated by the prescreen)" if key in filled else ""} |')
         lines += ['', f"Materials: {resolved['materials']['solid']} / {resolved['materials']['fluid']} "
                   f"({resolved['materials']['transport']} transport). Mesh profile {resolved['mesh']['name']}, "
                   f"numerics {resolved['numerics']['name']}, acceptance {resolved['acceptance']['name']}.", '']
+    if state.get('autofill'):
+        auto = state['autofill']
+        lines += ['## Estimated operating point', '',
+                  'The review and the spec left the values marked above open, so the prescreen chose them (correlation estimate, not CFD):', '']
+        lines += ['- ' + reason for reason in auto['reasons']] + ['- WARNING: ' + warning for warning in auto['warnings']]
+        lines += ['', 'To choose them yourself, set `operating.volume_flow_L_min` and `operating.outlet_absolute_pressure_bar` in the spec '
+                  '(or `decision.required: true` to stop after the prescreen) and rerun with `--run`.', '']
     prescreen = state['stages'].get('prescreen', {})
     if prescreen.get('table'):
         lines += ['## Prescreen', '', prescreen['table']]

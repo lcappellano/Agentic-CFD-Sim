@@ -65,8 +65,8 @@ function updatePressureDescription() {
   $('pressure-min-label').textContent = `Outlet / return pressure lower (bar ${gauge ? 'gauge' : 'absolute'})`;
   $('pressure-max-label').textContent = `Outlet / return pressure upper (bar ${gauge ? 'gauge' : 'absolute'})`;
   $('pressure-help').textContent = gauge
-    ? 'Return pressure is the pressure at the outlet, not the pump pressure rise. Zero gauge means the ambient/reference pressure. Absolute = gauge + reference. Equal bounds give a fixed return pressure.'
-    : 'Return pressure is the pressure at the outlet, not the pump pressure rise. An open tank can be represented by its atmospheric pressure. Absolute bounds must be greater than zero, with lower ≤ upper; equal bounds give a fixed return pressure.';
+    ? 'Blank bounds are estimated before CFD. Return pressure is the pressure at the outlet, not the pump pressure rise. Zero gauge means the ambient/reference pressure. Absolute = gauge + reference. Equal bounds give a fixed return pressure.'
+    : 'Blank bounds are estimated before CFD. Return pressure is the pressure at the outlet, not the pump pressure rise. An open tank can be represented by its atmospheric pressure. Absolute bounds must be greater than zero, with lower ≤ upper; equal bounds give a fixed return pressure.';
   const values = draft.requirements.outlet_absolute_pressure_bounds_Pa;
   $('pressure-conversion').textContent = gauge && values.every(Number.isFinite)
     ? `Absolute pressure used by the simulation: ${format(values[0]/100000)}–${format(values[1]/100000)} bar.` : '';
@@ -103,12 +103,13 @@ function liveBoundsErrors() {
     const shownUnit = gauge ? 'bar gauge' : unit;
     const scale = prefix === 'pressure' ? 100000 : 1;
     const reference = pressure?.reference_pressure_Pa;
-    if (gauge && (!Number.isFinite(reference) || reference <= 0)) errors.pressure_reference = 'Enter an ambient/reference absolute pressure greater than 0 bar to convert gauge pressure.';
+    const entered = lower !== null || upper !== null;
+    if (gauge && entered && (!Number.isFinite(reference) || reference <= 0)) errors.pressure_reference = 'Enter an ambient/reference absolute pressure greater than 0 bar to convert gauge pressure.';
     for (const [field, position, value] of [[`${prefix}_min`, 'lower', lower], [`${prefix}_max`, 'upper', upper]]) {
-      if (value === null) errors[field] = `Enter the ${label.toLowerCase()} ${position} bound in ${shownUnit}.`;
-      else if (!Number.isFinite(value)) errors[field] = `${label} ${position} bound must be a finite number in ${shownUnit}.`;
+      if (value === null) continue; // blank: estimated by the prescreen before CFD
+      if (!Number.isFinite(value)) errors[field] = `${label} ${position} bound must be a finite number in ${shownUnit}, or blank to have it estimated.`;
       else if (gauge) { if (Number.isFinite(reference) && reference > 0 && value + reference <= 0) errors[field] = `${label} ${position} bound corresponds to ${(value + reference)/scale} bar absolute. The converted absolute pressure must be greater than 0 bar.`; }
-      else if (value <= 0) errors[field] = `${label} ${position} bound is ${value/scale} ${shownUnit}. Enter a value greater than 0 ${shownUnit}.${prefix === 'pressure' ? ' If you meant gauge pressure, convert it using your ambient/reference pressure.' : ''}`;
+      else if (value <= 0) errors[field] = `${label} ${position} bound is ${value/scale} ${shownUnit}. Enter a value greater than 0 ${shownUnit}, or leave it blank to have it estimated.${prefix === 'pressure' ? ' If you meant gauge pressure, convert it using your ambient/reference pressure.' : ''}`;
     }
     if (Number.isFinite(lower) && Number.isFinite(upper) && lower > upper) errors[`${prefix}_min`] = `${label} lower bound (${lower/scale} ${shownUnit}) exceeds the upper bound (${upper/scale} ${shownUnit}). Correct the range.`;
   }

@@ -9,30 +9,56 @@ the rest and records everything in the run directory.
 .venv/bin/python tools/workbench.py status runs/<run>                     # < 1 KB summary
 ```
 
-Stages: `handoff → geometry → materials → prescreen → [operator decision] → mesh → case → solve → audit → export → report`.
+Stages: `handoff → geometry → materials → prescreen → [autofill or operator decision] → mesh → case → solve → audit → export → report`.
 Each stage keys on a hash of its inputs (files, settings, and its own source).
 Rerunning with an unchanged input skips the stage; changing `schedule.maximum`
 only extends the solve; changing the mesh profile re-meshes and rebuilds the case.
 `--until mesh` stops early. `--dry-run` prints the resolved spec.
 
-## Prescreen and the operator decision
+## Prescreen, autofill and the operator decision
 
 `tools/workbench.py prescreen specs/<part>.json` (or `simulate`, which runs it
 anyway) sweeps flow and outlet pressure with duct correlations before any mesh
-exists. It takes seconds and prints a table:
+exists. It takes seconds and prints a table plus an estimated operating point:
 
 - per flow: mean velocity, Reynolds number and regime, pressure drop (Petukhov
   friction plus a lumped minor-loss coefficient), outlet bulk temperature, wall
   and heated-face temperature as a `spread` / `peak` bracket, and the minimum
   outlet pressure that keeps the wall subcooled by the margin;
 - per flow and outlet pressure: wall subcooling and the idealised pump rise;
-- a suggested CFD starting point: the smallest flow that meets the temperature
-  limit under the spread bound and the smallest swept pressure that keeps the
-  wall subcooled.
+- the estimated operating point (`src/thermal/autofill.py`): the smallest flow
+  whose spread-bound heated-face temperature uses at most 75 % of the allowed
+  rise above the inlet (`prescreen.autofill_temperature_fraction`), raised if
+  needed until the wall stays subcooled by the margin at the preferred outlet
+  pressure (the fixed or lowest review pressure, else atmospheric) while the
+  velocity stays within `prescreen.plausible_velocity_m_s` (10 m/s); past that
+  the outlet pressure makes up the rest (saturation pressure at wall plus
+  margin, rounded up to 0.5 bar). Flows round up to two significant figures.
+  A review lower bound raises a value; nothing is ever lowered or clamped.
+  The sweep is centred on this estimate when the spec and the review give no
+  range.
 
-If the spec has no `operating.volume_flow_L_min` (or `mass_flow_kg_s`) or no
-outlet pressure, the driver stops with `status: awaiting_operator_decision`.
-The operator picks a point from the table, the agent writes it into the spec
+Plausibility is a check, not a cap. When the estimate needs more than
+`plausible_velocity_m_s`, `plausible_outlet_pressure_Pa` (10 bar) or
+`plausible_pressure_drop_Pa` (5 bar), exceeds a review upper bound or the pump
+limit, or no point exists, the driver stops with `awaiting_operator_decision`
+and prints the estimate with its `STOP:` reasons instead of running CFD. To run
+the estimate anyway, copy its values into `operating`; to let autofill continue,
+raise the threshold in `prescreen`. Values fixed by the review or the spec only
+get warnings. Designs that push wear or pressure limits are therefore never
+silently reshaped: the sweep and the estimate show what the physics asks for and
+the operator decides.
+
+Flow and outlet pressure are optional everywhere. When the spec has no
+`operating.volume_flow_L_min` (or `mass_flow_kg_s`) or no outlet pressure and the
+review left them blank, the driver fills the open values from the estimate,
+records them in `state.autofill` and the report (the operating table marks them
+"estimated by the prescreen"), and continues to CFD. Equal review bounds fix a
+value; a lower bound raises the estimate; an upper bound the estimate exceeds
+stops the run. The driver also stops with `status: awaiting_operator_decision`
+when `decision.required: true` is in the spec (a human wants to choose from the
+table) or when the estimate carries `stop` reasons (plausibility, bounds, pump
+limit, or no feasible point). Then the operator picks a point, the agent writes it into `operating`
 (optionally with a `decision` block naming who chose it and why), and
 `simulate --run runs/<run>` continues from cache. The equivalent duct is
 `D_h = 4V/A_wetted`, `L` = inlet-to-outlet centroid distance, `u = Q·L/V`;
@@ -66,9 +92,13 @@ be nearer the CFD result for copper.
   "schedule":   {"initial": 100, "chunk": 500, "maximum": 2000, "ranks": 4},
   "prescreen":  {"flow_range_L_min": [1, 50], "points": 8, "outlet_pressures_bar": [1.01325, 2, 4, 8],
                  "minor_loss_coefficient": 2.5, "wall_subcooling_margin_K": 10, "supply_pressure_Pa": 101325,
-                 "flow_path_length_m": null, "hydraulic_diameter_m": null, "solid_thickness_m": null},
-  "decision":   {"operator": "name", "note": "why this point was chosen from the prescreen"},
-  "initialization": {"temperature_from_case": "runs/<run>/cases/case-xxxx"},
+                 "flow_path_length_m": null, "hydraulic_diameter_m": null, "solid_thickness_m": null,
+                 "autofill_temperature_fraction": 0.75, "plausible_velocity_m_s": 10,
+                 "plausible_outlet_pressure_Pa": 1000000, "plausible_pressure_drop_Pa": 500000},
+  "decision":   {"operator": "name", "note": "why this point was chosen from the prescreen",
+                 "required": false,                     "// true": "stop after the prescreen for a human choice"},
+  "initialization": {"temperature_from_case": "runs/<run>/cases/case-xxxx",
+                     "temperature_from_prescreen": false},
   "unapproved_handoff_ok": false,
   "notes": "free text"
 }
@@ -82,7 +112,7 @@ is `constant` or `polynomial` (CoolProp fit; needs `fit_range_K` and
 | kind | profiles |
 | --- | --- |
 | mesh | `tet-coarse`, `tet-medium`, `tet-fine`, `tet-test` (sizes scale with inlet hydraulic diameter; `*_m` overrides are absolute) |
-| numerics | `tet-robust` (SST + Spalding, potential-flow start), `tet-robust-slow-energy`, `hex-kepsilon` |
+| numerics | `tet-robust` (SST + Spalding, potential-flow start), `tet-robust-slow-energy`, `hex-kepsilon`, `laminar` (chosen automatically when the prescreen regime at the operating point is laminar and the spec names no profile) |
 | acceptance | `project-screening`, `test-loose` (tests only) |
 
 Add a profile when a new class of part needs different defaults; do not put

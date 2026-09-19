@@ -22,7 +22,7 @@ inspection with approval to repair, redesign, mesh, or solve the geometry.
 | Inlet and outlet | Clearly labeled visual boundary sets and the direction legend “blue inlet → passage → green outlet”; user confirmation that this matches the physical plumbing |
 | Heating | Selected solid surfaces; exactly one positive heating input: uniform heat flux in W/m² or total power in W distributed uniformly across their combined area; explicit “heat into solid” label |
 | Other thermal boundaries | Explicit condition for surfaces not heated or coupled to coolant; e.g. a user-confirmed adiabatic idealization, or ambient and heat-transfer data for an external-loss model |
-| Operating point or search bounds | A fixed positive mass flow or a lower/upper mass-flow range in kg/s; pressure entered in bar as absolute or gauge with explicit ambient reference. Canonical outlet absolute-pressure bounds are stored in Pa |
+| Operating point or search bounds | Optional. A fixed positive mass flow (equal bounds), a lower/upper mass-flow range in kg/s, or blank; pressure entered in bar as absolute or gauge with explicit ambient reference, or blank. Blank values are estimated from the correlation prescreen before CFD and recorded in the run report; a range constrains that estimate. Canonical outlet absolute-pressure bounds are stored in Pa |
 | Goal | Requested result or search objective; initial workflow fixes temperature compliance to the maximum on the selected heated surfaces, explicitly displayed with units |
 | Geometry permission | Fixed geometry for this initial scope; any proposed change requires a separate request/scope extension |
 

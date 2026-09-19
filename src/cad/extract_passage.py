@@ -90,6 +90,18 @@ def extract(handoff, output):
         for key in port_roles:
             loop = gmsh.model.occ.addCurveLoop(list(ports[key]['source_curve_tags']))
             caps[key] = gmsh.model.occ.addPlaneSurface([loop])
+        gmsh.model.occ.synchronize()
+        # Exact cap geometry from OCC is the matching reference; the approved display
+        # values must agree with it to 1 %, otherwise the review shows a different opening.
+        references = {}
+        for key, cap in caps.items():
+            area = gmsh.model.occ.getMass(2, cap)
+            centre = list(gmsh.model.occ.getCenterOfMass(2, cap))
+            record = ports[key]
+            if abs(area / (record['area_mm2'] * MM * MM) - 1) > .01 or \
+                    math.dist(centre, [v * MM for v in record['centroid_mm']]) > 1e-5:
+                raise ValueError(f'Approved cap {key} does not match the CAD opening (area/centroid)')
+            references[key] = {'area_mm2': area / MM / MM, 'centroid_mm': [v / MM for v in centre]}
         bounds = gmsh.model.getBoundingBox(3, solid)
         diagonal = math.dist(bounds[:3], bounds[3:])
         pad = max(.005, .1 * diagonal)
@@ -109,7 +121,7 @@ def extract(handoff, output):
             if tag == solid:
                 continue
             surfaces = boundary_tags(gmsh, tag)
-            has_caps = all(any(surface_matches(gmsh, s, ports[key]) for s in surfaces) for key in port_roles)
+            has_caps = all(any(surface_matches(gmsh, s, references[key]) for s in surfaces) for key in port_roles)
             if has_caps and strictly_inside(gmsh.model.getBoundingBox(3, tag), outer, 1e-9):
                 candidates.append(tag)
         if len(candidates) != 1:
@@ -141,7 +153,7 @@ def extract(handoff, output):
         groups = {'inlet': [], 'outlet': []}
         exposed = fluid_faces - interface
         for key, role in port_roles.items():
-            found = [f for f in exposed if surface_matches(gmsh, f, ports[key])]
+            found = [f for f in exposed if surface_matches(gmsh, f, references[key])]
             if len(found) != 1:
                 raise ValueError('Port cap identity ambiguous: ' + key)
             groups[role].append(found[0])

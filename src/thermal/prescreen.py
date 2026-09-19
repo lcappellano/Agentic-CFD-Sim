@@ -17,7 +17,8 @@ from src.thermal.saturation import saturation_pressure, saturation_temperature, 
 DEFAULTS = {'minor_loss_coefficient': 2.5, 'path_length_factor': 1.0, 'wall_subcooling_margin_K': 10.,
             'supply_pressure_Pa': 101325., 'points': 8, 'flow_range_L_min': None, 'flows_L_min': None,
             'outlet_pressures_bar': None, 'flow_path_length_m': None, 'hydraulic_diameter_m': None,
-            'solid_thickness_m': None}
+            'solid_thickness_m': None, 'autofill_temperature_fraction': .75,
+            'plausible_velocity_m_s': 10., 'plausible_outlet_pressure_Pa': 10e5, 'plausible_pressure_drop_Pa': 5e5}
 DEFAULT_FLOW_RANGE = [1., 50.]
 DEFAULT_PRESSURES_BAR = [1.01325, 2., 4., 8.]
 
@@ -97,7 +98,8 @@ def estimate(flow_L_min, model, basis, operating, options):
             'correlation_valid': (4000 <= reynolds <= 5e6 and 0.5 <= prandtl <= 2000) or reynolds < 2300}
 
 
-def flows_for(options, handoff_requirements, rho):
+def flows_for(options, handoff_requirements, rho, centre=None):
+    """Sweep flows: spec list or range, else the review range, else a decade around the estimate."""
     if options.get('flows_L_min'):
         return sorted(float(v) for v in options['flows_L_min']), 'spec flows_L_min'
     if options.get('flow_range_L_min'):
@@ -108,6 +110,9 @@ def flows_for(options, handoff_requirements, rho):
         if all(isinstance(v, (int, float)) and v > 0 for v in bounds) and bounds[0] < bounds[1]:
             low, high = (v / rho * 60000 for v in bounds)
             source = 'handoff mass_flow_bounds_kg_s converted with inlet density'
+        elif centre:
+            low, high = centre / 10., centre * 10.
+            source = 'decade around the autofill estimate'
         else:
             low, high = DEFAULT_FLOW_RANGE
             source = 'default range; set prescreen.flow_range_L_min'
@@ -117,47 +122,34 @@ def flows_for(options, handoff_requirements, rho):
     return [low * (high / low) ** (i / (points - 1)) for i in range(points)], source
 
 
-def pressures_for(options, handoff_requirements):
+def pressures_for(options, handoff_requirements, include=None):
+    """Sweep pressures: spec list, else four across the review range, else a default list; the
+    estimate is added to the non-spec lists so the table shows the chosen column."""
     if options.get('outlet_pressures_bar'):
         return sorted(float(v) * 1e5 for v in options['outlet_pressures_bar']), 'spec outlet_pressures_bar'
     bounds = (handoff_requirements or {}).get('outlet_absolute_pressure_bounds_Pa') or [None, None]
     if all(isinstance(v, (int, float)) and v > 0 for v in bounds) and bounds[0] < bounds[1]:
         low, high = bounds
-        return [low * (high / low) ** (i / 3) for i in range(4)], 'handoff outlet_absolute_pressure_bounds_Pa'
-    return [v * 1e5 for v in DEFAULT_PRESSURES_BAR], 'default list; set prescreen.outlet_pressures_bar'
+        values, source = [low * (high / low) ** (i / 3) for i in range(4)], 'handoff outlet_absolute_pressure_bounds_Pa'
+    else:
+        values, source = [v * 1e5 for v in DEFAULT_PRESSURES_BAR], 'default list; set prescreen.outlet_pressures_bar'
+    if include is not None and all(abs(v - include) > 1e-6 * include for v in values):
+        values = sorted(values + [include])
+    return values, source
 
 
-def recommend(rows, pressures, operating, options):
-    """Smallest flow whose spread-bound heated temperature meets the limit, and the smallest
-    swept outlet pressure that keeps the spread-bound wall subcooled by the margin."""
-    limit = operating['temperature_limit_K']
-    margin = options['wall_subcooling_margin_K']
-    pump_limit = operating.get('max_pump_pressure_rise_Pa')
-    for row in rows:
-        if not row['heated_within_limit']['spread']:
-            continue
-        for pressure in pressures:
-            if saturation_temperature(pressure) - row['wall_temperature_K']['spread'] >= margin:
-                pump_rise = row['pressure_drop_Pa'] + pressure - options['supply_pressure_Pa']
-                return {'flow_L_min': row['flow_L_min'], 'outlet_absolute_pressure_Pa': pressure,
-                        'pressure_drop_Pa': row['pressure_drop_Pa'], 'idealised_pump_rise_Pa': pump_rise,
-                        'within_pump_limit': None if pump_limit is None else pump_rise <= pump_limit,
-                        'heated_temperature_K': row['heated_temperature_K'],
-                        'peak_bound_also_within_limit': row['heated_within_limit']['peak'],
-                        'basis': 'spread bound (solid spreads heat over the wetted area); CFD must confirm'}
-    return {'flow_L_min': None, 'note': 'No swept flow meets the temperature limit under the spread bound, or no swept '
-                                        'outlet pressure keeps the wall subcooled. Widen the sweep or expect CFD to fail the screens.'}
-
-
-def prescreen(geometry, basis, operating, options=None, handoff_requirements=None):
+def prescreen(geometry, basis, operating, options=None, handoff_requirements=None, fixed=None):
+    """Sweep table plus the autofill estimate; ``fixed`` carries flow/pressure already chosen."""
+    from src.thermal.autofill import choose_operating_point
     options = {**DEFAULTS, **(options or {})}
     for key in ('inlet_temperature_K', 'temperature_limit_K', 'heat_flux_W_m2'):
         if operating.get(key) is None:
             raise ValueError(f'Prescreen needs operating.{key} (from the handoff or the spec)')
     model = channel_model(geometry, options)
     rho = basis['fluid_properties']['density_kg_m3']
-    flows, flow_source = flows_for(options, handoff_requirements, rho)
-    pressures, pressure_source = pressures_for(options, handoff_requirements)
+    choice = choose_operating_point(geometry, basis, operating, options, handoff_requirements, fixed)
+    flows, flow_source = flows_for(options, handoff_requirements, rho, choice['volume_flow_L_min'])
+    pressures, pressure_source = pressures_for(options, handoff_requirements, choice['outlet_absolute_pressure_Pa'])
     rows = [estimate(flow, model, basis, operating, options) for flow in flows]
     margin = options['wall_subcooling_margin_K']
     matrix = []
@@ -175,11 +167,11 @@ def prescreen(geometry, basis, operating, options=None, handoff_requirements=Non
         warnings.append('No ligament thickness: heated-face temperature omits conduction through the solid.')
     if any(not r['correlation_valid'] for r in rows):
         warnings.append('Some flows are transitional (2300 < Re < 4000) or outside the Gnielinski range; treat those rows as rough.')
-    if 'default' in flow_source or 'default' in pressure_source:
-        warnings.append('Sweep ranges are defaults; set prescreen.flow_range_L_min / outlet_pressures_bar to match the hardware.')
+    if 'default range' in flow_source:
+        warnings.append('No flow estimate to centre the sweep on; set prescreen.flow_range_L_min to match the hardware.')
     return {'status': 'correlation_estimate', 'model': model, 'options': options, 'flow_source': flow_source,
             'pressure_source': pressure_source, 'pressures_Pa': pressures, 'rows': rows, 'matrix': matrix,
-            'recommendation': recommend(rows, pressures, operating, options), 'warnings': warnings,
+            'autofill': choice, 'warnings': warnings,
             'assumptions': ['Equivalent duct: D_h = 4V/A_wetted, L = inlet-outlet centroid distance, u = Q·L/V.',
                             'Petukhov friction plus a lumped minor-loss coefficient on the port dynamic pressure.',
                             'Gnielinski heat transfer at the outlet bulk temperature; fully developed, smooth walls.',
@@ -204,8 +196,8 @@ def markdown(result, operating):
     for row in result['rows']:
         pmin = row['minimum_outlet_pressure_Pa']
         fmt = lambda v: '>crit' if v is None else f'{v/1e5:.2f}'
-        lines.append(f"| {row['flow_L_min']:.2f} | {row['mean_speed_m_s']:.2f} | {row['reynolds']:.0f} | {row['regime']} | "
-                     f"{row['pressure_drop_Pa']/1e5:.3f} | {celsius(row['outlet_temperature_K'])} | "
+        lines.append(f"| {row['flow_L_min']:.4g} | {row['mean_speed_m_s']:.3g} | {row['reynolds']:.0f} | {row['regime']} | "
+                     f"{row['pressure_drop_Pa']/1e5:.3g} | {celsius(row['outlet_temperature_K'])} | "
                      f"{celsius(row['wall_temperature_K']['spread'])} / {celsius(row['wall_temperature_K']['peak'])} | "
                      f"{celsius(row['heated_temperature_K']['spread'])} / {celsius(row['heated_temperature_K']['peak'])} | "
                      f"{fmt(pmin['spread'])} / {fmt(pmin['peak'])} |")
@@ -217,17 +209,9 @@ def markdown(result, operating):
         for cell in cells:
             mark = 'ok' if cell['pass']['spread'] else 'NO'
             cell_text.append(f"{mark} {cell['wall_subcooling_K']['spread']:.0f} K, pump {cell['idealised_pump_rise_Pa']/1e5:.2f} bar")
-        lines.append(f"| {row['flow_L_min']:.2f} | " + ' | '.join(cell_text) + ' |')
-    rec = result['recommendation']
-    lines.append('')
-    if rec.get('flow_L_min') is not None:
-        lines.append(f"Suggested CFD starting point: {rec['flow_L_min']:.2f} L/min at {rec['outlet_absolute_pressure_Pa']/1e5:.2f} bar "
-                     f"(Δp ≈ {rec['pressure_drop_Pa']/1e5:.2f} bar, pump rise ≈ {rec['idealised_pump_rise_Pa']/1e5:.2f} bar"
-                     + (f", within the {operating['max_pump_pressure_rise_Pa']/1e5:.1f} bar pump limit" if rec.get('within_pump_limit') else
-                        (f", EXCEEDS the {operating['max_pump_pressure_rise_Pa']/1e5:.1f} bar pump limit" if rec.get('within_pump_limit') is False else ''))
-                     + f"). Peak-flux bound also within limit: {rec['peak_bound_also_within_limit']}.")
-    else:
-        lines.append(rec['note'])
+        lines.append(f"| {row['flow_L_min']:.4g} | " + ' | '.join(cell_text) + ' |')
+    from src.thermal.autofill import explain
+    lines += ['', explain(result['autofill'])]
     for warning in result['warnings']:
         lines.append('- ' + warning)
     return '\n'.join(lines) + '\n'

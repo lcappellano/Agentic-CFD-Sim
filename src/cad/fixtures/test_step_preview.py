@@ -71,3 +71,31 @@ class PreviewTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SquareChannelTests(unittest.TestCase):
+    def test_square_through_channel_gives_two_polygon_caps(self):
+        gmsh = backend()
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "bar.step"
+            gmsh.initialize()
+            try:
+                gmsh.model.add("square_bar")
+                bar = gmsh.model.occ.addBox(-1.5, -1.5, -15, 3, 3, 30)
+                channel = gmsh.model.occ.addBox(-.5, -.5, -16, 1, 1, 32)
+                gmsh.model.occ.cut([(3, bar)], [(3, channel)])
+                gmsh.model.occ.synchronize()
+                gmsh.write(str(source))
+            finally:
+                gmsh.finalize()
+            result = preview_step(source, Path(tmp) / "bar.json")
+            self.assertEqual(len(result["faces"]), 10)
+            ports = sorted(result["virtual_faces"], key=lambda p: p["centroid_mm"][2])
+            self.assertEqual(len(ports), 2)
+            for port, z in zip(ports, (-15, 15)):
+                self.assertEqual(port["shape"], "polygon")
+                self.assertNotIn("radius_mm", port)
+                self.assertAlmostEqual(port["area_mm2"], 1.0, places=9)
+                self.assertAlmostEqual(port["centroid_mm"][2], z, places=6)
+                self.assertAlmostEqual(abs(port["normal"][2]), 1, places=6)
+                self.assertGreater(len(port["triangles"]), 0)

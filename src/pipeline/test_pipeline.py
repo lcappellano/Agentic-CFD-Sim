@@ -49,13 +49,31 @@ class SpecTests(unittest.TestCase):
         self.assertEqual(resolved['numerics']['turbulence_model'], 'kEpsilon')
         self.assertEqual(resolved['mesh']['wall_size_m'], .0002)
 
-    def test_operating_point_may_be_left_for_the_operator(self):
-        resolved = spec_module.resolve(spec_module.load(self.write({'prescreen': {'flow_range_L_min': [1, 20], 'points': 4}})), self.root)
+    def test_operating_point_may_be_left_open(self):
+        resolved = spec_module.resolve(spec_module.load(self.write({'prescreen': {'flow_range_L_min': [1, 20], 'points': 4},
+                                                                    'decision': {'required': True}})), self.root)
         self.assertEqual(missing_operating_point(resolved['operating']), ['operating.volume_flow_L_min (or mass_flow_kg_s)'])
         self.assertEqual(resolved['prescreen']['flow_range_L_min'], [1, 20])
         self.assertEqual(resolved['prescreen']['wall_subcooling_margin_K'], 10)
+        self.assertIs(resolved['decision']['required'], True)
         with self.assertRaises(ValueError):
             spec_module.resolve(spec_module.load(self.write({'prescreen': {'flows_lpm': [1]}})), self.root)
+
+    def test_equal_review_bounds_fix_the_value_unless_the_spec_sets_it(self):
+        synthetic_handoff(self.root / 'handoff-fixed', flow_bounds=(.5, .5))
+        path = self.root / 'spec.json'
+        path.write_text(json.dumps({'schema_version': 1, 'handoff': 'handoff-fixed'}))
+        resolved = spec_module.resolve(spec_module.load(path), self.root)
+        self.assertEqual(resolved['operating']['mass_flow_kg_s'], .5)
+        self.assertEqual(missing_operating_point(resolved['operating']), [])
+        path.write_text(json.dumps({'schema_version': 1, 'handoff': 'handoff-fixed', 'operating': {'volume_flow_L_min': 30, 'total_heat_load_W': 5}}))
+        resolved = spec_module.resolve(spec_module.load(path), self.root)
+        self.assertNotIn('mass_flow_kg_s', resolved['operating'])
+        self.assertNotIn('heat_flux_W_m2', resolved['operating'])
+        synthetic_handoff(self.root / 'handoff-blank', pressure_bounds=None)
+        path.write_text(json.dumps({'schema_version': 1, 'handoff': 'handoff-blank'}))
+        resolved = spec_module.resolve(spec_module.load(path), self.root)
+        self.assertEqual(len(missing_operating_point(resolved['operating'])), 2)
 
     def test_unknown_keys_and_profiles_rejected(self):
         with self.assertRaises(ValueError):
@@ -84,6 +102,27 @@ class SpecTests(unittest.TestCase):
 class EndToEndTests(unittest.TestCase):
     """Real Gmsh + OpenFOAM on the synthetic block: a minute, not an engineering result."""
 
+    def test_laminar_point_selects_laminar_profile_and_solves(self):
+        from src.pipeline.driver import simulate
+        root = ROOT / 'runs' / '_e2e_laminar'
+        if root.exists():
+            shutil.rmtree(root)
+        (root / 'runs').mkdir(parents=True)
+        synthetic_handoff(root / 'handoff')
+        spec = {'schema_version': 1, 'handoff': 'handoff', 'label': 'e2e-laminar', 'unapproved_handoff_ok': True,
+                'operating': {'mass_flow_kg_s': .005}, 'mesh': {'profile': 'tet-test'},
+                'acceptance': {'profile': 'test-loose'}, 'schedule': {'initial': 20, 'chunk': 20, 'maximum': 40, 'ranks': 2}}
+        (root / 'spec.json').write_text(json.dumps(spec))
+        state = simulate(root, root / 'spec.json', log=lambda *_: None)
+        self.assertEqual(state['status'], 'complete', state['stages'])
+        self.assertEqual(state['spec']['numerics']['name'], 'laminar')
+        self.assertTrue(any('switched to laminar' in w for w in state['warnings']))
+        case = root / 'runs' / Path(state['run']).name / state['stages']['case']['output']
+        self.assertIn('simulationType laminar', (case / 'constant/fluid/turbulenceProperties').read_text())
+        self.assertFalse((case / '0/fluid/k').exists())
+        self.assertGreater(state['case']['heated_maximum_K'], 300)
+        shutil.rmtree(root)
+
     def test_block_fixture_runs_every_stage(self):
         from src.pipeline.driver import simulate
         root = ROOT / 'runs' / '_e2e_fixture'
@@ -93,7 +132,7 @@ class EndToEndTests(unittest.TestCase):
         synthetic_handoff(root / 'handoff')
         spec = {'schema_version': 1, 'handoff': 'handoff', 'label': 'e2e', 'unapproved_handoff_ok': True,
                 'prescreen': {'flow_range_L_min': [5, 40], 'points': 4, 'outlet_pressures_bar': [1.11325, 3]},
-                'mesh': {'profile': 'tet-test'}, 'numerics': {'profile': 'tet-robust'},
+                'decision': {'required': True}, 'mesh': {'profile': 'tet-test'}, 'numerics': {'profile': 'tet-robust'},
                 'acceptance': {'profile': 'test-loose'},
                 'schedule': {'initial': 20, 'chunk': 20, 'maximum': 40, 'ranks': 2}}
         (root / 'spec.json').write_text(json.dumps(spec))
@@ -101,7 +140,8 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(state['status'], 'awaiting_operator_decision')
         self.assertEqual(state['stages']['prescreen']['status'], 'done')
         self.assertEqual(state['stages']['mesh']['status'], 'pending')
-        self.assertIn('Suggested CFD starting point', state['stages']['prescreen']['table'])
+        self.assertIn('Estimated operating point', state['stages']['prescreen']['table'])
+        self.assertIn('Prescreen estimate', state['decision_prompt'])
         run = root / 'runs' / Path(state['run']).name
         self.assertIn('Decision needed', (run / 'report.md').read_text())
         spec['operating'] = {'mass_flow_kg_s': .5}
@@ -122,6 +162,57 @@ class EndToEndTests(unittest.TestCase):
         self.assertTrue(state['stages']['mesh']['cached'])
         self.assertTrue(state['stages']['case']['cached'])
         self.assertEqual(state['case']['iteration'], 60)
+        shutil.rmtree(root)
+
+    def test_blank_review_bounds_are_autofilled_before_the_case_is_built(self):
+        from src.pipeline.driver import simulate
+        root = ROOT / 'runs' / '_e2e_autofill'
+        if root.exists():
+            shutil.rmtree(root)
+        (root / 'runs').mkdir(parents=True)
+        synthetic_handoff(root / 'handoff', pressure_bounds=None)
+        spec = {'schema_version': 1, 'handoff': 'handoff', 'label': 'e2e-autofill', 'unapproved_handoff_ok': True,
+                'mesh': {'profile': 'tet-test'}, 'acceptance': {'profile': 'test-loose'}}
+        (root / 'spec.json').write_text(json.dumps(spec))
+        state = simulate(root, root / 'spec.json', until='case', log=lambda *_: None)
+        self.assertEqual(state['status'], 'stopped_after_case', state['stages'])
+        filled = state['autofill']['filled']
+        self.assertEqual(set(filled), {'volume_flow_L_min', 'outlet_absolute_pressure_Pa'})
+        self.assertEqual(state['spec']['operating']['volume_flow_L_min'], filled['volume_flow_L_min'])
+        run = root / 'runs' / Path(state['run']).name
+        settings = json.loads((run / state['stages']['case']['output'] / 'settings.json').read_text())
+        self.assertAlmostEqual(settings['volume_flow_L_min'], filled['volume_flow_L_min'])
+        self.assertAlmostEqual(settings['outlet_absolute_pressure_Pa'], filled['outlet_absolute_pressure_Pa'])
+        self.assertIn('autofill:', state_module.summary_text(state))
+        write_report(run, state, None)
+        self.assertIn('Estimated operating point', (run / 'report.md').read_text())
+        shutil.rmtree(root)
+
+    def test_implausible_estimate_stops_for_the_operator_instead_of_capping(self):
+        from src.pipeline.driver import simulate
+        root = ROOT / 'runs' / '_e2e_stop'
+        if root.exists():
+            shutil.rmtree(root)
+        (root / 'runs').mkdir(parents=True)
+        synthetic_handoff(root / 'handoff', pressure_bounds=None, flow_bounds=(5., 50.))  # 5 kg/s floor: far beyond plausible velocity
+        spec = {'schema_version': 1, 'handoff': 'handoff', 'label': 'e2e-stop', 'unapproved_handoff_ok': True,
+                'mesh': {'profile': 'tet-test'}, 'acceptance': {'profile': 'test-loose'}}
+        (root / 'spec.json').write_text(json.dumps(spec))
+        state = simulate(root, root / 'spec.json', log=lambda *_: None)
+        self.assertEqual(state['status'], 'awaiting_operator_decision')
+        self.assertEqual(state['stages']['mesh']['status'], 'pending')
+        self.assertNotIn('autofill', state)
+        self.assertIn('needs operator input', state['decision_prompt'])
+        self.assertIn("lower flow bound", state['decision_prompt'])
+        self.assertIn('STOP:', state['stages']['prescreen']['table'])
+        estimate = state['stages']['prescreen']['result']['autofill']
+        self.assertGreater(estimate['estimate']['mean_speed_m_s'], 10)  # reported as needed, not lowered
+        spec['prescreen'] = {'plausible_velocity_m_s': 1000, 'plausible_pressure_drop_Pa': 1e9}
+        (root / 'spec.json').write_text(json.dumps(spec))
+        run = root / 'runs' / Path(state['run']).name
+        state = simulate(root, root / 'spec.json', run=run, until='prescreen', log=lambda *_: None)
+        self.assertEqual(state['status'], 'stopped_after_prescreen')
+        self.assertAlmostEqual(state['autofill']['filled']['volume_flow_L_min'], estimate['volume_flow_L_min'], places=2)  # filled to 6 figures
         shutil.rmtree(root)
 
 

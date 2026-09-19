@@ -65,7 +65,8 @@ def summarize(case, window=100):
                 'diffusive_heat_into_fluid_W': None, 'conductivity_range_W_m_K': None}
         if (latest / 'fluid/gradT').is_file():
             gradients = fluid.read_boundary(latest / 'fluid/gradT', patch)
-            alphat = fluid.read_boundary(latest / 'fluid/alphat', patch)
+            alphat = (fluid.read_boundary(latest / 'fluid/alphat', patch) if (latest / 'fluid/alphat').is_file()
+                      else [0.] * len(gradients))  # laminar: no turbulent diffusivity
             try:
                 k = conductivity_values(settings, t)
                 info['conductivity_range_W_m_K'] = [min(k), max(k)]
@@ -79,7 +80,7 @@ def summarize(case, window=100):
     diffusion = [v['diffusive_heat_into_fluid_W'] for v in ports.values()]
     wall_t = fluid.read_boundary(latest / 'fluid/T', 'fluid_to_solid')
     wall_p = fluid.read_boundary(latest / 'fluid/p', 'fluid_to_solid')
-    yplus = fluid.read_boundary(latest / 'fluid/yPlus', 'fluid_to_solid')
+    yplus = fluid.read_boundary(latest / 'fluid/yPlus', 'fluid_to_solid') if (latest / 'fluid/yPlus').is_file() else None
     heated_power = last['heatedPower']
     out = {
         'case': str(case), 'latest_fields': latest.name, 'monitor_last': last, 'ports': ports,
@@ -95,7 +96,7 @@ def summarize(case, window=100):
         'maximum_wetted_temperature_K': max(wall_t),
         'minimum_wetted_absolute_pressure_Pa': min(wall_p),
         'nonpositive_wetted_pressure_face_count': sum(p <= 0 for p in wall_p),
-        'yplus': yplus_review(fluid, yplus),
+        'yplus': yplus_review(fluid, yplus) if yplus else {'status': 'not written', 'note': 'laminar case or yPlus function object absent'},
         'final_window_ranges': {name: window_range(rows, float(latest.name), window) for name, rows in histories.items()},
         'window_iterations': window,
     }

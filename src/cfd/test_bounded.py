@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from src.cfd.run_bounded import phase_counts, stop_reason, execute
 from src.cfd.transport import validate_polynomials
-from src.cfd.turbulence import setup
+from src.cfd.turbulence import setup, residual_equations
 from src.foam.logs import residual_maxima
 from src.foam.monitors import full_window
 
@@ -49,6 +49,14 @@ class BoundedTests(unittest.TestCase):
         self.assertGreater(fields['omega'][1], 0)
         self.assertIn('Spalding', fields['nut'][3])
         self.assertIn('blended true', fields['omega'][3])
+
+    def test_laminar_has_no_turbulence_fields_or_residuals(self):
+        laminar = setup('laminar', 1, .05, .001)
+        self.assertEqual(laminar['simulation_type'], 'laminar')
+        self.assertEqual(laminar['fields'], [])
+        self.assertEqual(residual_equations('laminar'), {'fluid:Ux', 'fluid:Uy', 'fluid:Uz', 'fluid:h', 'fluid:p_rgh', 'solid:h'})
+        self.assertIn('fluid:omega', residual_equations('kOmegaSST_spalding'))
+        self.assertIn('fluid:epsilon', residual_equations('kEpsilon'))
 
     def test_boolean_polynomial_rejected(self):
         spec = {'Tmin_K': 280, 'Tmax_K': 380, 'muCoeffs8': [True] + [0.] * 7, 'kappaCoeffs8': [.6] + [0.] * 7}

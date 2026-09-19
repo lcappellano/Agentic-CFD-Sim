@@ -175,7 +175,8 @@ def audit(case, settings_path, geometry_path, criteria_path):
                 'reverse_flow_mass_fraction': sum(abs(f) for f in phi if (f>0 if port=='inlet' else f<0))/sum(map(abs,phi))}
         if (latest / 'fluid/gradT').is_file():
             gradients = fluid.read(latest / 'fluid/gradT', port, [0,-1,0,1,0,0,0])
-            alphat = fluid.read(latest / 'fluid/alphat', port, [1,-1,-1,0,0,0,0])
+            alphat = (fluid.read(latest / 'fluid/alphat', port, [1,-1,-1,0,0,0,0]) if (latest / 'fluid/alphat').is_file()
+                      else [0.] * len(gradients))  # laminar case
             try:
                 conductivity = [transport_at(settings, t)[1] for t in temperatures]
                 info['conductivity_range_W_m_K'] = [min(conductivity), max(conductivity)]

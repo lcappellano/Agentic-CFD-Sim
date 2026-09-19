@@ -27,7 +27,8 @@ from src.pipeline.report import write_report
 from src.pipeline.status import case_status
 from src.results.saved_case import export_saved_case
 from src.thermal.materials import material_basis
-from src.thermal.prescreen import prescreen as run_prescreen, markdown as prescreen_markdown
+from src.thermal.prescreen import prescreen as run_prescreen, markdown as prescreen_markdown, channel_model, estimate as prescreen_estimate, DEFAULTS as PRESCREEN_DEFAULTS
+from src.cfd.settings import pressure_Pa as operating_pressure_Pa
 from src.verification.audit_fields import audit as audit_fields
 from src.verification.audit_geometry import audit as audit_geometry
 from src.verification.review_history import review as review_history
@@ -165,16 +166,17 @@ class Driver:
 
     def stage_prescreen(self):
         basis_path = Path(self.state['stages']['materials']['result']['basis'])
+        basis = json.loads(basis_path.read_text())
         operating = self.prescreen_operating()
+        fixed = self.fixed_operating_point(basis)
         options = self.resolved['prescreen']
         key = content_hash({'basis': digest(basis_path), 'geometry': self.state['stages']['geometry']['key'],
-                            'operating': operating, 'options': options,
-                            'source': source_hash('thermal/prescreen.py', 'thermal/saturation.py')})
+                            'operating': operating, 'fixed': fixed, 'options': options,
+                            'source': source_hash('thermal/prescreen.py', 'thermal/saturation.py', 'thermal/autofill.py')})
         output = self.run / 'prescreen' / f'sweep-{short(key)}.json'
 
         def work():
-            result = run_prescreen(self.geometry_manifest(), json.loads(basis_path.read_text()), operating, options,
-                                   self.resolved.get('handoff_requirements'))
+            result = run_prescreen(self.geometry_manifest(), basis, operating, options, self.resolved.get('handoff_requirements'), fixed)
             table = prescreen_markdown(result, operating)
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(json.dumps(result, indent=2, allow_nan=False, default=str) + '\n')
@@ -183,20 +185,63 @@ class Driver:
             for warning in result['warnings']:
                 if warning not in self.state['warnings']:
                     self.state['warnings'].append(warning)
-            rec = result['recommendation']
+            choice = result['autofill']
             summary = {'flows': len(result['rows']), 'pressures': len(result['pressures_Pa'])}
-            if rec.get('flow_L_min') is not None:
-                summary.update(suggest_L_min=round(rec['flow_L_min'], 2), suggest_bar=round(rec['outlet_absolute_pressure_Pa'] / 1e5, 2),
-                               dp_bar=round(rec['pressure_drop_Pa'] / 1e5, 3))
+            if choice['volume_flow_L_min'] is not None and choice['outlet_absolute_pressure_Pa'] is not None:
+                summary.update(estimate_L_min=float(f"{choice['volume_flow_L_min']:.4g}"),
+                               estimate_bar=round(choice['outlet_absolute_pressure_Pa'] / 1e5, 3))
             else:
-                summary['suggestion'] = 'none in sweep'
-            return {'output': self.relative(output), 'result': {'recommendation': rec, 'table': str(output.with_suffix('.md'))},
+                summary['estimate'] = 'none'
+            return {'output': self.relative(output), 'result': {'autofill': choice, 'table': str(output.with_suffix('.md'))},
                     'summary': summary}
         result = self.stage('prescreen', key, work, output=str(output.relative_to(self.run)))
         table = self.state['stages']['prescreen'].get('table')
         if table:
             self.log(table)
         return result
+
+    def fixed_operating_point(self, basis):
+        """Flow (L/min) and outlet pressure (Pa) already fixed by the spec or the review."""
+        operating = self.resolved['operating']
+        fixed = {}
+        if operating.get('mass_flow_kg_s') is not None:
+            fixed['volume_flow_L_min'] = operating['mass_flow_kg_s'] / basis['fluid_properties']['density_kg_m3'] * 60000.
+        elif operating.get('volume_flow_L_min') is not None:
+            fixed['volume_flow_L_min'] = float(operating['volume_flow_L_min'])
+        pressure = operating_pressure_Pa(operating, 'outlet_absolute_pressure')
+        if pressure is not None:
+            fixed['outlet_absolute_pressure_Pa'] = pressure
+        return fixed
+
+    def autofill(self, missing):
+        """Fill the flow/pressure the spec left open from the prescreen estimate. Returns a prompt
+        instead when a human must choose: decision.required, or no feasible estimate."""
+        choice = (self.state['stages']['prescreen'].get('result') or {}).get('autofill') or {}
+        feasible = choice.get('volume_flow_L_min') is not None and choice.get('outlet_absolute_pressure_Pa') is not None
+        estimate = (f" Prescreen estimate: {choice['volume_flow_L_min']:.4g} L/min at "
+                    f"{choice['outlet_absolute_pressure_Pa'] / 1e5:.2f} bar absolute." if feasible else '')
+        ask = 'Choose the CFD operating point from the prescreen table: set ' + ' and '.join(missing) + ' in the spec.'
+        if self.resolved['decision'].get('required'):
+            return ask + estimate
+        if choice.get('stop') or not feasible:
+            return ('The prescreen estimate needs operator input: ' + ' '.join(choice.get('stop') or ['no feasible estimate.']) + estimate
+                    + ' ' + ask + ' To run the estimate as it is, copy its values; to let autofill continue past a plausibility '
+                    'threshold, raise prescreen.plausible_velocity_m_s / plausible_outlet_pressure_Pa / plausible_pressure_drop_Pa.')
+        operating, filled = self.resolved['operating'], {}
+        if any(m.startswith('operating.volume_flow') for m in missing):
+            operating['volume_flow_L_min'] = filled['volume_flow_L_min'] = float(f"{choice['volume_flow_L_min']:.6g}")
+        if any(m.startswith('operating.outlet_absolute_pressure') for m in missing):
+            operating['outlet_absolute_pressure_Pa'] = filled['outlet_absolute_pressure_Pa'] = float(choice['outlet_absolute_pressure_Pa'])
+        self.state['autofill'] = {'filled': filled, 'reasons': choice['reasons'], 'warnings': choice['warnings'],
+                                  'target_temperature_K': choice['target_temperature_K'], 'estimate': choice['estimate'],
+                                  'override': 'set these keys in operating, or decision.required: true, to choose yourself'}
+        for warning in choice['warnings']:
+            note = 'Autofill: ' + warning
+            if note not in self.state['warnings']:
+                self.state['warnings'].append(note)
+        self.state['spec'] = spec_module.describe(self.resolved)
+        self.log('autofill   ' + ', '.join(f'{k}={v:.6g}' for k, v in filled.items()) + '  (prescreen estimate; override in operating)')
+        return None
 
     def prescreen_operating(self):
         """Operating values the prescreen needs, with the spec's units normalised."""
@@ -215,10 +260,49 @@ class Driver:
                 values[key] = operating[key]
         return values
 
+    def flow_regime(self, basis):
+        """Prescreen regime at the chosen operating point: laminar, transitional or turbulent."""
+        options = {**PRESCREEN_DEFAULTS, **self.resolved['prescreen']}
+        model = channel_model(self.geometry_manifest(), options)
+        settings = case_settings(self.resolved['operating'], self.geometry_manifest(), basis, self.resolved['numerics'], 1)
+        row = prescreen_estimate(settings['volume_flow_L_min'], model, basis, self.prescreen_operating(), options)
+        return row['regime'], row['reynolds']
+
+    def select_numerics(self, basis):
+        """Pick laminar or the RANS default from the prescreen regime unless the spec named a profile."""
+        regime, reynolds = self.flow_regime(basis)
+        current = self.resolved['numerics']['name']
+        wanted = 'laminar' if regime == 'laminar' else ('tet-robust' if current == 'laminar' else current)
+        note = f'Prescreen regime at the chosen flow: {regime} (Re {reynolds:.0f}).'
+        if self.resolved['numerics_explicit']:
+            if (regime == 'laminar') != (current == 'laminar'):
+                note += f' Spec keeps numerics profile {current}; check the model choice.'
+        elif wanted != current:
+            self.resolved['numerics'] = spec_module.profile('numerics', wanted)
+            note += f' Numerics profile switched to {wanted}.'
+        if regime == 'transitional':
+            note += ' Transitional flow: neither laminar nor RANS is reliable here.'
+        if note not in self.state['warnings']:
+            self.state['warnings'].append(note)
+        self.state['spec'] = spec_module.describe(self.resolved)
+
+    def prescreen_row(self, basis, settings):
+        options = {**PRESCREEN_DEFAULTS, **self.resolved['prescreen']}
+        model = channel_model(self.geometry_manifest(), options)
+        return prescreen_estimate(settings['volume_flow_L_min'], model, basis, self.prescreen_operating(), options)
+
     def case_settings(self):
         basis = json.loads(Path(self.state['stages']['materials']['result']['basis']).read_text())
-        return case_settings(self.resolved['operating'], self.geometry_manifest(), basis, self.resolved['numerics'],
-                             self.resolved['schedule']['maximum'])
+        self.select_numerics(basis)
+        settings = case_settings(self.resolved['operating'], self.geometry_manifest(), basis, self.resolved['numerics'],
+                                 self.resolved['schedule']['maximum'])
+        if self.resolved['initialization'].get('temperature_from_prescreen'):
+            row = self.prescreen_row(basis, settings)
+            solid_T = row['heated_temperature_K']['spread'] or row['wall_temperature_K']['spread']
+            fluid_T = .5 * (settings['inlet_temperature_K'] + row['outlet_temperature_K'])
+            settings['initial_temperature_K'] = {'fluid': fluid_T, 'solid': solid_T,
+                                                 'source': 'prescreen spread estimate; shortens the pseudo-transient only'}
+        return settings
 
     def stage_case(self):
         mesh_path = Path(self.state['stages']['mesh']['result']['mesh'])
@@ -337,14 +421,15 @@ class Driver:
                  ('solve', self.stage_solve), ('audit', self.stage_audit), ('export', self.stage_export), ('report', self.stage_report)]
         self.state['status'] = 'running'
         self.state.pop('decision_prompt', None)
+        self.state.pop('autofill', None)
         for name, method in order:
             method()
             if name == 'prescreen':
                 missing = spec_module.missing_operating_point(self.resolved['operating'])
-                if missing:
+                prompt = self.autofill(missing) if missing else None
+                if prompt:
                     self.state['status'] = 'awaiting_operator_decision'
-                    self.state['decision_prompt'] = ('Choose the CFD operating point from the prescreen table: set '
-                                                     + ' and '.join(missing) + ' in the spec.')
+                    self.state['decision_prompt'] = prompt
                     write_report(self.run, self.state, self.resolved)
                     self.log('stopped: ' + self.state['decision_prompt'])
                     state_module.save(self.run, self.state)

@@ -1,9 +1,12 @@
 """Native transport selection and field-level property accounting."""
 import copy
+import json
 import re
 import unittest
+from pathlib import Path
 
 from src.cfd.transport import fluid_dictionary, solid_dictionary, conductivity_values, validate_polynomials
+from src.cfd.cht_case import solid_solution, fluid_solution
 
 
 class TransportTests(unittest.TestCase):
@@ -19,6 +22,19 @@ class TransportTests(unittest.TestCase):
         self.assertIn('rho 999.7;', text)
         self.assertNotIn('Coeffs', text)
         self.assertIn('kappa 394;', solid_dictionary(self.basis))
+
+    def test_solid_enthalpy_is_solved_to_absolute_tolerance(self):
+        text = solid_solution({'solid_nonorthogonal_correctors': 2, 'solid_enthalpy_relaxation': 1.0})
+        self.assertIn('relTol 0;', text)
+        self.assertIn('h 1.0;', text)
+        fluid = fluid_solution({'pressure_relaxation': .3, 'velocity_relaxation': .5, 'fluid_enthalpy_relaxation': 1.0})
+        self.assertIn('h 1.0;', fluid)
+
+    def test_laminar_profile_uses_unlimited_solid_gradient(self):
+        # cellLimited feeds the non-orthogonal correction a clipped gradient and floors the solid
+        # h initial residual near 2e-3 on tet meshes; Gauss linear converged the same field to 1e-10.
+        profiles = json.loads(Path(__file__).resolve().parents[1].joinpath('pipeline/profiles/numerics.json').read_text())
+        self.assertEqual(profiles['profiles']['laminar']['solid_gradient'], 'Gauss linear')
 
     def test_transport_changes_without_density_or_cp_change(self):
         self.basis['transport_polynomials'] = self.spec

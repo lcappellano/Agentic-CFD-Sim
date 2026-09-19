@@ -29,16 +29,20 @@ def clone(source, target, iteration, solid_relaxation, fluid_relaxation=None):
     checkpoint = source / iteration
     review = json.loads((source / 'bounded-review.json').read_text())
     evidence = review['chunks'][-1]
-    if evidence['iteration'] != float(iteration) or not evidence['phase_margin_screen_pass'] or not evidence['transport_validity']['within_declared_range']:
+    if (evidence['iteration'] != float(iteration) or not evidence['phase_margin_screen_pass']
+            or evidence['transport_validity'].get('within_declared_range') is False):
         raise ValueError('Selected checkpoint must have a current passing phase/range screen')
     if review['status'] not in ('iteration_limit_not_converged', 'numerical_screen_pass_requires_independent_model_mesh_review'):
         raise ValueError('Source must be stopped with a completed checkpoint')
-    required = {'fluid': ['T', 'U', 'p', 'p_rgh', 'phi', 'rho', 'k', 'omega', 'nut', 'alphat'], 'solid': ['T']}
+    settings = json.loads((source / 'settings.json').read_text())
+    model = settings.get('turbulence_model', 'kEpsilon')
+    turbulence = {'laminar': [], 'kEpsilon': ['k', 'epsilon', 'nut', 'alphat'],
+                  'kOmegaSST_spalding': ['k', 'omega', 'nut', 'alphat']}[model]
+    required = {'fluid': ['T', 'U', 'p', 'p_rgh', 'phi', 'rho'] + turbulence, 'solid': ['T']}
     for region, fields in required.items():
         for name in fields:
             if not (checkpoint / region / name).is_file():
-                raise ValueError(f'Missing restart field {region}/{name}; this adapter currently supports SST')
-    settings = json.loads((source / 'settings.json').read_text())
+                raise ValueError(f'Missing restart field {region}/{name} for a {model} case')
     changed_solutions, change_record = {}, {}
     for region, relaxation in changes.items():
         key = region + '_enthalpy_relaxation'

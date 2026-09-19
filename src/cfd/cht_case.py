@@ -84,7 +84,9 @@ def solid_schemes(settings):
 
 
 def solid_solution(settings):
-    return ('solvers { h { solver PCG; preconditioner DIC; tolerance 1e-10; relTol 0.001; } } '
+    # relTol 0: a relative tolerance leaves the linear final residual near relTol x initial, failing
+    # the linear-final gate. The initial-residual floor is a gradient-scheme matter (memory/cfd.md).
+    return ('solvers { h { solver PCG; preconditioner DIC; tolerance 1e-10; relTol 0; } } '
             f'SIMPLE {{ nNonOrthogonalCorrectors {settings["solid_nonorthogonal_correctors"]}; }} '
             f'relaxationFactors {{ equations {{ h {settings["solid_enthalpy_relaxation"]}; }} }}')
 
@@ -133,8 +135,11 @@ def build(case, mesh, basis, settings, geometry_manifest=None):
     write_dictionary(case / 'constant/g', 'dimensions [0 1 -2 0 0 0 0]; value (0 0 0);', 'uniformDimensionedVectorField')
     write_dictionary(case / 'constant/fluid/thermophysicalProperties', fluid_thermo)
     write_dictionary(case / 'constant/solid/thermophysicalProperties', solid_dictionary(basis))
-    write_dictionary(case / 'constant/fluid/turbulenceProperties',
-                     f'simulationType RAS; RAS {{ RASModel {turbulence["RASModel"]}; turbulence on; printCoeffs on; }}')
+    if turbulence['simulation_type'] == 'laminar':
+        write_dictionary(case / 'constant/fluid/turbulenceProperties', 'simulationType laminar;')
+    else:
+        write_dictionary(case / 'constant/fluid/turbulenceProperties',
+                         f'simulationType RAS; RAS {{ RASModel {turbulence["RASModel"]}; turbulence on; printCoeffs on; }}')
     for region in ('fluid', 'solid'):
         write_dictionary(case / f'constant/{region}/radiationProperties', 'radiation off; radiationModel none;')
     write_dictionary(case / 'system/fluid/fvSchemes', fluid_schemes(settings))
@@ -152,7 +157,9 @@ def build(case, mesh, basis, settings, geometry_manifest=None):
     write_field(case, 'fluid', 'p_rgh', '[1 -1 -2 0 0 0 0]', pout, {
         'inlet': 'type zeroGradient;', 'outlet': f'type fixedValue; value uniform {pout};',
         wall: f'type fixedFluxPressure; value uniform {pout};'})
-    write_field(case, 'fluid', 'T', '[0 0 0 1 0 0 0]', tin, {
+    initial = settings.get('initial_temperature_K') or {}
+    fluid_T0, solid_T0 = initial.get('fluid', tin), initial.get('solid', tin)
+    write_field(case, 'fluid', 'T', '[0 0 0 1 0 0 0]', fluid_T0, {
         'inlet': f'type fixedValue; value uniform {tin};', 'outlet': 'type zeroGradient;', wall: coupled('fluidThermo')})
     for name, value, dimensions, wall_type in turbulence['fields']:
         transported = name in ('k', 'epsilon', 'omega')
@@ -160,7 +167,7 @@ def build(case, mesh, basis, settings, geometry_manifest=None):
             'inlet': f'type {"fixedValue" if transported else "calculated"}; value uniform {value};',
             'outlet': f'type {"zeroGradient" if transported else "calculated"}; value uniform {value};',
             wall: f'type {wall_type}; value uniform {value};'})
-    write_field(case, 'solid', 'T', '[0 0 0 1 0 0 0]', tin, {
+    write_field(case, 'solid', 'T', '[0 0 0 1 0 0 0]', solid_T0, {
         'heated': f'type externalWallHeatFluxTemperature; mode flux; q uniform {flux}; kappaMethod solidThermo; value uniform {tin};',
         'outerWalls': 'type zeroGradient;', 'solid_to_fluid': coupled('solidThermo')})
     write_field(case, 'solid', 'p', '[1 -1 -2 0 0 0 0]', pout,

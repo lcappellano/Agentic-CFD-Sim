@@ -202,18 +202,27 @@ class RequirementsTests(unittest.TestCase):
         self.assertEqual(reloaded["draft"]["requirements"]["outlet_absolute_pressure_bounds_Pa"], bounds)
         return reloaded
 
-    def test_pressure_missing_bound_identifies_lower_or_upper(self):
-        for bounds, missing, present in (([None, 60005], "lower", "upper"),
-                                         ([60005, None], "upper", "lower")):
+    def test_blank_pressure_bound_is_an_open_range_not_an_issue(self):
+        for bounds in ([None, 60005], [60005, None]):
             with self.subTest(bounds=bounds):
                 state = self.save_pressure_bounds(bounds)
-                message = " ".join(state["issues"]).lower()
-                self.assertIn("pressure", message)
-                self.assertIn(missing, message)
-                self.assertRegex(message, r"required|missing|enter")
-                self.assertNotIn(present + " bound is required", message)
-                with self.assertRaises(ValueError):
-                    self.approve_fixture(state)
+                self.assertEqual(state["issues"], [])
+                self.assertEqual(state["field_errors"], {})
+                self.assertTrue(self.approve_fixture(state)["approved"])
+
+    def test_blank_flow_and_pressure_bounds_approve_and_hand_off_for_autofill(self):
+        payload = self.complete_payload()
+        payload["requirements"]["mass_flow_bounds_kg_s"] = [None, None]
+        payload["requirements"]["outlet_absolute_pressure_bounds_Pa"] = [None, None]
+        revision = review.read_state(self.folder)["draft"]["revision"]
+        state = review.save_draft(self.folder, payload, revision)
+        self.assertEqual(state["issues"], [])
+        self.assertTrue(self.approve_fixture(state)["approved"])
+        package = Path(review.handoff(self.folder)["handoff_directory"])
+        project = json.loads((package / "project.json").read_text())
+        self.assertEqual(project["mass_flow_bounds_kg_s"], [None, None])
+        self.assertEqual(project["outlet_absolute_pressure_bounds_Pa"], [None, None])
+        self.assertEqual(review.verify_handoff(package)["valid"], True)
 
     def test_zero_absolute_pressure_is_saved_but_reported_as_invalid_not_missing(self):
         state = self.save_pressure_bounds([0, 60005])
@@ -307,13 +316,22 @@ class RequirementsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.approve_fixture(state)
 
-    def test_missing_gauge_bound_stays_unresolved(self):
-        for raw_bounds in ([None, 60005], [0, None]):
+    def test_blank_gauge_bound_needs_a_matching_blank_absolute_bound(self):
+        for raw_bounds, absolute in (([None, 60005], [None, 161330]), ([0, None], [101325, None])):
             with self.subTest(raw_bounds=raw_bounds):
+                state = self.save_gauge_pressure(raw_bounds, 101325, absolute)
+                self.assertEqual(state["issues"], [])
+        for raw_bounds in ([None, 60005], [0, None]):
+            with self.subTest(raw_bounds=raw_bounds, stored="stale"):
                 state = self.save_gauge_pressure(raw_bounds, 101325, [None, None])
                 self.assertTrue(state["issues"])
                 with self.assertRaises(ValueError):
                     self.approve_fixture(state)
+
+    def test_blank_gauge_bounds_need_no_reference(self):
+        state = self.save_gauge_pressure([None, None], None, [None, None])
+        self.assertEqual(state["issues"], [])
+        self.assertTrue(self.approve_fixture(state)["approved"])
 
     def test_negative_gauge_allowed_when_resulting_absolute_pressure_is_positive(self):
         state = self.save_gauge_pressure([-10000, 0], 101325, [91325, 101325])

@@ -20,13 +20,18 @@ TOP_KEYS = {'schema_version', 'handoff', 'label', 'operating', 'materials', 'mes
             'schedule', 'initialization', 'prescreen', 'decision', 'unapproved_handoff_ok', 'notes'}
 PRESCREEN_KEYS = {'flows_L_min', 'flow_range_L_min', 'points', 'outlet_pressures_bar', 'minor_loss_coefficient',
                   'path_length_factor', 'flow_path_length_m', 'hydraulic_diameter_m', 'solid_thickness_m',
-                  'wall_subcooling_margin_K', 'supply_pressure_Pa'}
-DECISION_KEYS = {'operator', 'note', 'decided_at'}
+                  'wall_subcooling_margin_K', 'supply_pressure_Pa', 'autofill_temperature_fraction', 'plausible_velocity_m_s',
+                  'plausible_outlet_pressure_Pa', 'plausible_pressure_drop_Pa'}
+DECISION_KEYS = {'operator', 'note', 'decided_at', 'required'}
 OPERATING_KEYS = {'inlet_temperature_K', 'inlet_temperature_C', 'outlet_absolute_pressure_Pa', 'outlet_absolute_pressure_bar',
                   'volume_flow_L_min', 'mass_flow_kg_s', 'heat_flux_W_m2', 'total_heat_load_W', 'temperature_limit_K',
                   'temperature_limit_C', 'max_pump_pressure_rise_Pa', 'target_pump_pressure_rise_Pa', 'minimum_saturation_margin_K'}
 MATERIAL_KEYS = {'solid', 'fluid', 'transport', 'fit_range_K', 'reference_pressure_Pa'}
 SCHEDULE_DEFAULTS = {'initial': 100, 'chunk': 500, 'maximum': 2000, 'ranks': None}
+# A spec value in any unit of a group blocks the handoff default for that group.
+OPERATING_GROUPS = [('inlet_temperature_K', 'inlet_temperature_C'), ('temperature_limit_K', 'temperature_limit_C'),
+                    ('outlet_absolute_pressure_Pa', 'outlet_absolute_pressure_bar'), ('volume_flow_L_min', 'mass_flow_kg_s'),
+                    ('heat_flux_W_m2', 'total_heat_load_W'), ('max_pump_pressure_rise_Pa',)]
 DEFAULT_PROFILES = {'mesh': 'tet-coarse', 'numerics': 'tet-robust', 'acceptance': 'project-screening'}
 
 
@@ -86,14 +91,16 @@ def resolve(spec, root):
     load = requirements.get('heat_load') or {}
     if load.get('value') is not None:
         defaults[load['mode']] = load['value']
-    bounds = requirements.get('outlet_absolute_pressure_bounds_Pa') or [None, None]
-    if bounds[0] is not None and bounds[0] == bounds[1]:
-        defaults['outlet_absolute_pressure_Pa'] = bounds[0]
+    # Equal review bounds fix the value; a range or blanks leave it to the spec or the autofill.
+    for key, requirement in (('outlet_absolute_pressure_Pa', 'outlet_absolute_pressure_bounds_Pa'), ('mass_flow_kg_s', 'mass_flow_bounds_kg_s')):
+        bounds = requirements.get(requirement) or [None, None]
+        if bounds[0] is not None and bounds[0] == bounds[1]:
+            defaults[key] = bounds[0]
     if requirements.get('max_pump_pressure_rise_Pa') is not None:
         defaults['max_pump_pressure_rise_Pa'] = requirements['max_pump_pressure_rise_Pa']
     for key, value in defaults.items():
-        family = key.rsplit('_', 1)[0]
-        if not any(k.startswith(family) for k in operating):
+        group = next(g for g in OPERATING_GROUPS if key in g)
+        if not any(k in operating for k in group):
             operating[key] = value
     materials = _section(spec, 'materials', MATERIAL_KEYS)
     materials.setdefault('solid', requirements.get('solid_material') or project.get('solid_material'))
@@ -110,7 +117,7 @@ def resolve(spec, root):
         schedule['ranks'] = max(1, min(4, (os.cpu_count() or 1) // 2))
     if not 0 < schedule['initial'] <= schedule['maximum'] or schedule['chunk'] <= 0 or schedule['ranks'] < 1:
         raise ValueError('schedule requires 0 < initial <= maximum, chunk > 0, ranks >= 1')
-    initialization = _section(spec, 'initialization', {'temperature_from_case'})
+    initialization = _section(spec, 'initialization', {'temperature_from_case', 'temperature_from_prescreen'})
     prescreen = _section(spec, 'prescreen', PRESCREEN_KEYS)
     prescreen.setdefault('wall_subcooling_margin_K', operating.get('minimum_saturation_margin_K', 10))
     decision = _section(spec, 'decision', DECISION_KEYS)
@@ -118,11 +125,13 @@ def resolve(spec, root):
             'materials': materials, 'mesh': sections['mesh'], 'numerics': sections['numerics'],
             'acceptance': sections['acceptance'], 'schedule': schedule, 'initialization': initialization,
             'prescreen': prescreen, 'decision': decision, 'handoff_requirements': requirements,
+            'numerics_explicit': bool((spec.get('numerics') or {}).get('profile')),
             'unapproved_handoff_ok': bool(spec.get('unapproved_handoff_ok', False)), 'notes': spec.get('notes')}
 
 
 def missing_operating_point(operating):
-    """Keys the operator still has to choose before CFD (empty when the point is fixed)."""
+    """Flow/pressure keys not fixed yet; the driver fills them from the prescreen estimate unless
+    ``decision.required`` asks a human to choose (empty when the point is fixed)."""
     missing = []
     if not any(k in operating for k in ('volume_flow_L_min', 'mass_flow_kg_s')):
         missing.append('operating.volume_flow_L_min (or mass_flow_kg_s)')

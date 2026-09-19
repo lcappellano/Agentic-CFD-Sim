@@ -8,7 +8,8 @@ from src.foam.hashing import digest
 FIXTURES = Path(__file__).resolve().parents[1] / 'cad' / 'fixtures'
 
 
-def synthetic_handoff(destination, solid='copper', fluid='water'):
+def synthetic_handoff(destination, solid='copper', fluid='water', pressure_bounds=(111325, 111325), flow_bounds=None):
+    """Unapproved fixture handoff; ``pressure_bounds``/``flow_bounds`` None leaves the review blank (autofill)."""
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(FIXTURES / 'cooling_block_through_bore_v1.step', destination / 'source.step')
@@ -22,7 +23,8 @@ def synthetic_handoff(destination, solid='copper', fluid='water'):
                     'selections': {'inlet': [ports[0]['id']], 'outlet': [ports[1]['id']], 'heated': [heated['id']]},
                     'requirements': {'solid_material': solid, 'coolant_material': fluid, 'inlet_temperature_K': 300,
                                      'maximum_surface_temperature_K': 500, 'heat_load': {'mode': 'heat_flux_W_m2', 'value': 100000},
-                                     'outlet_absolute_pressure_bounds_Pa': [111325, 111325], 'units_confirmed': True,
+                                     'outlet_absolute_pressure_bounds_Pa': list(pressure_bounds) if pressure_bounds else [None, None],
+                                     'mass_flow_bounds_kg_s': list(flow_bounds) if flow_bounds else [None, None], 'units_confirmed': True,
                                      'notes': 'SYNTHETIC FIXTURE; not a user approval'}}
     (destination / 'requirements.json').write_text(json.dumps(requirements, indent=2) + '\n')
     return destination
