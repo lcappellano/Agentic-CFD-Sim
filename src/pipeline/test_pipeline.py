@@ -83,6 +83,41 @@ class SpecTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             spec_module.resolve(spec_module.load(self.write({'numerics': {'overrides': {'bogus': 1}}})), self.root)
 
+    def test_restart_initialization_keys_and_profile(self):
+        resolved = spec_module.resolve(spec_module.load(self.write({'initialization': {'fields_from_case': 'runs/x/cases/case-1'},
+                                                                    'numerics': {'profile': 'tet-robust-restart'}})), self.root)
+        self.assertEqual(resolved['initialization']['fields_from_case'], 'runs/x/cases/case-1')
+        self.assertEqual(resolved['numerics']['solid_gradient'], 'Gauss linear')
+        self.assertEqual(resolved['numerics']['turbulence_model'], 'kOmegaSST_spalding')
+        with self.assertRaises(ValueError):
+            spec_module.resolve(spec_module.load(self.write({'initialization': {'fields_from_case': 'a', 'temperature_from_case': 'b'}})), self.root)
+        with self.assertRaises(ValueError):
+            spec_module.resolve(spec_module.load(self.write({'initialization': {'fields_from_case': 'a', 'fields_mapped_from_case': 'b'}})), self.root)
+        resolved = spec_module.resolve(spec_module.load(self.write({'initialization': {'fields_mapped_from_case': 'runs/x/cases/case-1'}})), self.root)
+        self.assertEqual(resolved['initialization']['fields_mapped_from_case'], 'runs/x/cases/case-1')
+
+    def test_report_advice_for_a_residual_floor(self):
+        state = state_module.load(self.root)
+        state['run'] = 'run-1'
+        state['spec'] = {'numerics': {'solid_gradient': 'cellLimited Gauss linear 1'}}
+        state['case'] = {'status': 'diagnostic', 'stop_reason': 'iteration_limit_not_converged', 'iteration': 3000, 'path': 'cases/case-a',
+                         'heated_maximum_C': 154.4, 'heated_maximum_K': 427.5, 'temperature_limit_C': 200, 'wetted_maximum_C': 132.8,
+                         'pressure_drop_bar': 2.83, 'total_pressure_drop_bar': 2.78,
+                         'numerical_checks': {'mass': True, 'energy': True, 'temperature_drift': True, 'pressure_drift': False, 'residuals': False},
+                         'audit_failed': ['pressure_drop_stability', 'residual:fluid:p_rgh', 'residual:solid:h']}
+        report = write_report(self.root, state)
+        self.assertNotIn('Raise schedule.maximum', report)
+        self.assertIn('will not help', report)
+        self.assertIn('tet-robust-restart', report)
+        self.assertIn('fields_from_case: runs/run-1/cases/case-a', report)
+        self.assertIn('finer mesh', report)
+        state['spec']['numerics']['solid_gradient'] = 'Gauss linear'
+        state['case']['audit_failed'] = ['residual:solid:h']
+        state['case']['numerical_checks']['pressure_drift'] = True
+        report = write_report(self.root, state)
+        self.assertNotIn('tet-robust-restart', report)
+        self.assertIn('unlimited gradient', report)
+
     def test_state_summary_and_report(self):
         state = state_module.load(self.root)
         state['stages']['geometry'].update(status='done', output='geometry/geo-1', summary={'fluid_m3': '3e-6'})
@@ -162,6 +197,107 @@ class EndToEndTests(unittest.TestCase):
         self.assertTrue(state['stages']['mesh']['cached'])
         self.assertTrue(state['stages']['case']['cached'])
         self.assertEqual(state['case']['iteration'], 60)
+        shutil.rmtree(root)
+
+    def test_hxt_mesher_reports_quality_and_rejects_a_floor_above_its_best(self):
+        from src.pipeline.driver import simulate
+        root = ROOT / 'runs' / '_e2e_mesh_quality'
+        if root.exists():
+            shutil.rmtree(root)
+        (root / 'runs').mkdir(parents=True)
+        synthetic_handoff(root / 'handoff')
+        spec = {'schema_version': 1, 'handoff': 'handoff', 'label': 'e2e-mesh', 'unapproved_handoff_ok': True,
+                'operating': {'mass_flow_kg_s': .5}, 'mesh': {'profile': 'tet-test', 'overrides': {'algorithm_3d': 10, 'threads': 2}},
+                'acceptance': {'profile': 'test-loose'}}
+        (root / 'spec.json').write_text(json.dumps(spec))
+        state = simulate(root, root / 'spec.json', until='mesh', log=lambda *_: None)
+        self.assertEqual(state['status'], 'stopped_after_mesh', state['stages'])
+        run = root / 'runs' / Path(state['run']).name
+        metadata = json.loads((run / state['stages']['mesh']['output']).with_suffix('.json').read_text())
+        quality = metadata['quality']
+        self.assertEqual(quality['metric'], 'minSICN')
+        self.assertEqual(quality['passes'][0], 'HXT + Gmsh optimiser')
+        self.assertEqual(set(quality['regions']), {'fluid', 'solid'})
+        self.assertTrue(all(q['min'] >= quality['floor'] for q in quality['regions'].values()), quality)
+        self.assertEqual(state['stages']['mesh']['summary']['min_sicn'], round(min(q['min'] for q in quality['regions'].values()), 4))
+        # A floor no tetrahedral mesh reaches must fail the mesh stage, before any case is built.
+        spec['mesh']['overrides'] = {'algorithm_3d': 10, 'threads': 2, 'min_quality': .999, 'optimize_netgen': False}
+        (root / 'spec.json').write_text(json.dumps(spec))
+        state = simulate(root, root / 'spec.json', run=run, until='mesh', log=lambda *_: None)
+        self.assertEqual(state['status'], 'failed')
+        self.assertIn('Mesh quality below the floor', state['stages']['mesh']['error'])
+        self.assertEqual(state['stages']['case']['status'], 'pending')
+        shutil.rmtree(root)
+
+    def test_mapped_start_on_a_different_mesh_skips_the_potential_start(self):
+        from src.pipeline.driver import simulate
+        root = ROOT / 'runs' / '_e2e_mapped'
+        if root.exists():
+            shutil.rmtree(root)
+        (root / 'runs').mkdir(parents=True)
+        synthetic_handoff(root / 'handoff')
+        spec = {'schema_version': 1, 'handoff': 'handoff', 'label': 'e2e-mapped', 'unapproved_handoff_ok': True,
+                'operating': {'mass_flow_kg_s': .5}, 'mesh': {'profile': 'tet-test'}, 'numerics': {'profile': 'tet-robust'},
+                'acceptance': {'profile': 'test-loose'}, 'schedule': {'initial': 20, 'chunk': 20, 'maximum': 20, 'ranks': 2}}
+        (root / 'spec.json').write_text(json.dumps(spec))
+        state = simulate(root, root / 'spec.json', log=lambda *_: None)
+        self.assertEqual(state['status'], 'complete', state['stages'])
+        run = root / 'runs' / Path(state['run']).name
+        coarse = state['stages']['case']['output']
+        spec['mesh'] = {'profile': 'tet-test', 'overrides': {'wall_size_per_diameter': .2, 'bulk_size_per_diameter': .45}}
+        spec['initialization'] = {'fields_mapped_from_case': f'runs/{run.name}/{coarse}'}
+        (root / 'spec.json').write_text(json.dumps(spec))
+        state = simulate(root, root / 'spec.json', run=run, log=lambda *_: None)
+        self.assertEqual(state['status'], 'complete', state['stages'])
+        self.assertFalse(state['stages']['mesh']['cached'])
+        fine = run / state['stages']['case']['output']
+        self.assertNotEqual(state['stages']['case']['output'], coarse)
+        manifest = json.loads((fine / 'manifest.json').read_text())
+        self.assertNotIn('velocity_initialization', manifest)
+        mapped = manifest['mapped_initialization']
+        self.assertEqual(mapped['source_iteration'], '20')
+        self.assertTrue({'U', 'p', 'p_rgh', 'T'} <= set(mapped['fields']['fluid']), mapped['fields'])
+        self.assertIn('T', mapped['fields']['solid'])
+        self.assertTrue(mapped['fields']['fluid']['T']['nonuniform'])
+        self.assertFalse((fine / '0/fluid/yPlus').exists())
+        self.assertIn('mapped from', state['stages']['case']['summary']['fields_init'])
+        self.assertGreater(state['case']['heated_maximum_K'], 300)
+        shutil.rmtree(root)
+
+    def test_restart_seeds_every_field_and_skips_the_potential_start(self):
+        from src.pipeline.driver import simulate
+        root = ROOT / 'runs' / '_e2e_restart'
+        if root.exists():
+            shutil.rmtree(root)
+        (root / 'runs').mkdir(parents=True)
+        synthetic_handoff(root / 'handoff')
+        spec = {'schema_version': 1, 'handoff': 'handoff', 'label': 'e2e-restart', 'unapproved_handoff_ok': True,
+                'operating': {'mass_flow_kg_s': .5}, 'mesh': {'profile': 'tet-test'}, 'numerics': {'profile': 'tet-robust'},
+                'acceptance': {'profile': 'test-loose'}, 'schedule': {'initial': 20, 'chunk': 20, 'maximum': 20, 'ranks': 2}}
+        (root / 'spec.json').write_text(json.dumps(spec))
+        state = simulate(root, root / 'spec.json', log=lambda *_: None)
+        self.assertEqual(state['status'], 'complete', state['stages'])
+        run = root / 'runs' / Path(state['run']).name
+        first = state['stages']['case']['output']
+        self.assertIn('velocity_initialization', json.loads((run / first / 'manifest.json').read_text()))
+        spec['numerics'] = {'profile': 'tet-robust-restart'}
+        spec['initialization'] = {'fields_from_case': f'runs/{run.name}/{first}'}
+        (root / 'spec.json').write_text(json.dumps(spec))
+        state = simulate(root, root / 'spec.json', run=run, log=lambda *_: None)
+        self.assertEqual(state['status'], 'complete', state['stages'])
+        self.assertTrue(state['stages']['mesh']['cached'])
+        self.assertFalse(state['stages']['case']['cached'])
+        self.assertNotEqual(state['stages']['case']['output'], first)
+        second = run / state['stages']['case']['output']
+        manifest = json.loads((second / 'manifest.json').read_text())
+        self.assertNotIn('velocity_initialization', manifest)
+        seeded = manifest['fields_initialization']['fields']
+        self.assertTrue({'U', 'p', 'p_rgh', 'T', 'k', 'omega'} <= set(seeded['fluid']), seeded)
+        self.assertNotIn('phi', seeded['fluid'])
+        self.assertEqual(set(seeded['solid']), {'T', 'p'})
+        self.assertIn('gradSchemes { default Gauss linear; }', (second / 'system/solid/fvSchemes').read_text())
+        self.assertEqual(state['stages']['case']['summary']['fields_init'], spec['initialization']['fields_from_case'])
+        self.assertGreater(state['case']['heated_maximum_K'], 300)
         shutil.rmtree(root)
 
     def test_blank_review_bounds_are_autofilled_before_the_case_is_built(self):

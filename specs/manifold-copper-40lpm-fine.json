@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "handoff": "runs/20260918T002459-astra-manifold-review-27f127f8/handoffs/revision-6-4824154e",
+  "label": "manifold-copper-40lpm-fine",
+  "materials": {
+    "solid": "copper",
+    "fluid": "water",
+    "transport": "constant"
+  },
+  "mesh": {
+    "profile": "tet-medium",
+    "overrides": {
+      "algorithm_3d": 10,
+      "threads": 16,
+      "refinement_boxes": [
+        {
+          "name": "channels-and-header-slots",
+          "bounds_m": [
+            -0.034,
+            0.0006,
+            -0.0251,
+            0.034,
+            0.0024,
+            0.0251
+          ],
+          "size_m": 0.00015,
+          "transition_m": 0.0009
+        }
+      ]
+    }
+  },
+  "numerics": {
+    "profile": "tet-robust"
+  },
+  "acceptance": {
+    "profile": "project-screening"
+  },
+  "schedule": {
+    "initial": 100,
+    "chunk": 500,
+    "maximum": 1500,
+    "ranks": 8
+  },
+  "prescreen": {
+    "flow_range_L_min": [
+      10,
+      60
+    ],
+    "points": 6,
+    "outlet_pressures_bar": [
+      2,
+      4,
+      8
+    ],
+    "minor_loss_coefficient": 2.5
+  },
+  "initialization": {
+    "fields_mapped_from_case": "runs/20260918T230613-manifold-copper-40lpm-8bar/cases/case-cb4ca391"
+  },
+  "operating": {
+    "volume_flow_L_min": 40,
+    "outlet_absolute_pressure_bar": 8,
+    "inlet_temperature_C": 20
+  },
+  "decision": {
+    "operator": "Luca",
+    "note": "Report sweep point 40 L/min (report local channel speeds 11.9/14.9/19.9 m/s ~ 24/30/40 L/min total)."
+  },
+  "notes": "Mesh-sensitivity pair to manifold-copper-40lpm (run 20260918T230613, 2.83 bar, 154.4 C): the channel refinement box goes from 0.2 mm to 0.15 mm (about 7 cells across the 1 mm gap instead of 5) and is extended over the 1.6 mm high header slots (|x| 26-34 mm, y 0.6-2.4 mm) where the flow turns into the 17 channels. Parallel HXT mesher with the quality gate (7.6 M cells, min SICN 0.10). Earlier attempts: 0.12 mm with the serial mesher (run 20260921T194324) failed checkMesh on sliver cells; on this mesh the potential-flow start spiked to 166 m/s and -2000 bar at the channel-mouth corners and tet-robust produced a negative fluid temperature at iteration 450 (case-0ba8adbb), lower relaxation diverged faster (case-3dbd6604). Stage 1 (this spec): the converged 0.2 mm solution is mapped onto this mesh (initialization.fields_mapped_from_case) and tet-robust continues to 1500 iterations. Stage 2: manifold-copper-40lpm-fine-restart.json with tet-robust-restart removes the limited-gradient floor on the solid residual. Same copper, constant transport, 20 C in, 8 bar out, 10 MW/m2 as the report replication."
+}

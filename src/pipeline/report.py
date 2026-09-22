@@ -18,6 +18,38 @@ NEXT_STEPS = {
 }
 
 
+SETTLED_GATES = {'residuals', 'pressure_drift'}
+
+
+def next_step(state):
+    """Advice for the case's stop reason. An iteration limit with settled temperatures and balances
+    is a residual floor, so the advice is a restart or a finer mesh, never more iterations."""
+    case = state.get('case') or {}
+    reason = case.get('stop_reason')
+    if reason != 'iteration_limit_not_converged':
+        return NEXT_STEPS.get(reason)
+    failed = {k for k, v in (case.get('numerical_checks') or {}).items() if not v}
+    if not failed or not failed <= SETTLED_GATES:
+        return NEXT_STEPS[reason]
+    residuals = [c for c in (case.get('audit_failed') or []) if c.startswith('residual:')]
+    fluid = [c for c in residuals if c.startswith('residual:fluid:')]
+    solid = [c for c in residuals if c.startswith('residual:solid:')]
+    gradient = (((state.get('spec') or {}).get('numerics') or {}).get('solid_gradient') or '')
+    case_path = f"runs/{state.get('run')}/{case['path']}" if case.get('path') and state.get('run') else '<this case>'
+    parts = ['Temperatures and balances have settled and only the residual/pressure-drift gates fail: this is a residual '
+             'floor, so raising schedule.maximum will not help.']
+    if solid and gradient.startswith('cellLimited'):
+        parts.append(f'The solid h floor comes from the limited solid gradient: restart with numerics.profile tet-robust-restart '
+                     f'and initialization.fields_from_case: {case_path} (same mesh; continues the settled flow).')
+    if fluid or 'pressure_drift' in failed:
+        parts.append('The fluid residuals / pressure-drop wander are a mesh-and-scheme floor: run a paired finer mesh (a smaller '
+                     'refinement box over the channels, or mesh.profile tet-fine) and compare against the mesh gates; if the '
+                     'floor persists, prism layers or a monitor-based gate are the code-level options.')
+    elif solid and not gradient.startswith('cellLimited'):
+        parts.append('The solid h floor persists with the unlimited gradient; review the solid mesh near the interface.')
+    return ' '.join(parts)
+
+
 def write_report(run, state, resolved=None):
     run = Path(run)
     lines = [f'# {state["run"]}', '']
@@ -69,8 +101,9 @@ def write_report(run, state, resolved=None):
             lines.append('Failed numerical checks: ' + ', '.join(failed) + '.')
         if case.get('audit_failed'):
             lines.append('Failed audit checks: ' + ', '.join(case['audit_failed']) + '.')
-        if case.get('stop_reason') in NEXT_STEPS:
-            lines += ['', 'Next step: ' + NEXT_STEPS[case['stop_reason']]]
+        advice = next_step(state)
+        if advice:
+            lines += ['', 'Next step: ' + advice]
         if case.get('viewer'):
             lines += ['', f"Viewer: `python tools/workbench.py results-serve {case['viewer']} --run {run}`"]
     if state.get('warnings'):

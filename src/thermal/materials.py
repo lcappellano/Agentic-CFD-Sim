@@ -16,6 +16,12 @@ SOLIDS = {
         'molecular_weight': 63.546, 'aliases': ['cu', 'c101', 'c110', 'ofhc', 'ofhc copper', 'cu-etp', 'copper etp'],
         'source': 'KME Cu-ETP datasheet 2021 (rolled copper, room temperature)',
         'limits': 'Constant properties; conductivity falls ~15% by 500 K.'},
+    'cucrzr': {
+        'density_kg_m3': 8890., 'cp_J_kg_K': 390., 'conductivity_W_m_K': 320.,
+        'molecular_weight': 63.4, 'aliases': ['cu cr zr', 'cucrzr alloy', 'c18150', 'c18150 copper', 'chromium zirconium copper',
+                                              'copper chromium zirconium', 'elbrodur', 'cucrzr ig'],
+        'source': 'ITER Materials Properties Handbook, CuCrZr-IG (k 318-320 W/m K, cp 390 J/kg K at 20 C); CDA C18150 datasheet (8890 kg/m3)',
+        'limits': 'Constant properties; precipitation-hardened state; conductivity rises ~10% by 500 K in the IG data.'},
     'aluminum_6061': {
         'density_kg_m3': 2700., 'cp_J_kg_K': 896., 'conductivity_W_m_K': 167.,
         'molecular_weight': 26.98, 'aliases': ['aluminium', 'aluminum', 'al', '6061', 'al6061', 'al 6061', 'aluminum 6061', 'aluminium 6061', '6061-t6'],

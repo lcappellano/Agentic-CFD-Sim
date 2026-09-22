@@ -47,6 +47,21 @@
       "write_interval": 100,
       "field_minmax_interval": 10
     },
+    "tet-robust-restart": {
+      "description": "tet-robust with the unlimited solid gradient (Gauss linear) for a restart from a settled checkpoint on the same mesh (initialization.fields_from_case). The cellLimited gradient of tet-robust keeps the cold start stable but settles into a limit cycle that floors the solid h residual (1.2e-5 on the manifold at 40 L/min, 2.4e-3 on the bar); unlimited from a settled field converges, unlimited from cold diverged on tet meshes with sharp ribs.",
+      "turbulence_model": "kOmegaSST_spalding",
+      "turbulence_intensity": 0.05,
+      "solid_gradient": "Gauss linear",
+      "solid_nonorthogonal_correctors": 2,
+      "solid_enthalpy_relaxation": 0.9,
+      "fluid_enthalpy_relaxation": 0.9,
+      "velocity_relaxation": 0.3,
+      "pressure_relaxation": 0.2,
+      "fluid_laplacian": "Gauss linear limited 0.5",
+      "velocity_initialization": "potential",
+      "write_interval": 100,
+      "field_minmax_interval": 10
+    },
     "laminar": {
       "description": "Laminar passages (prescreen Re below 2300): no turbulence model, potential-flow start, unlimited solid gradient (cellLimited floors the solid h residual near 2e-3 on tet meshes), enthalpy relaxation 1.0 (0.9 crawled: e-folding ~3000 iterations on the square-channel bar).",
       "turbulence_model": "laminar",

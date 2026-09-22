@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "handoff": "runs/20260922T001721-cooling-test-part-revB-4cff0efb/handoffs/revision-1-d7b76269",
+  "label": "manifold-revB-40lpm-8bar",
+  "operating": {
+    "volume_flow_L_min": 40,
+    "outlet_absolute_pressure_bar": 8,
+    "inlet_temperature_C": 20
+  },
+  "materials": {
+    "solid": "copper",
+    "fluid": "water",
+    "transport": "constant"
+  },
+  "mesh": {
+    "profile": "tet-medium",
+    "overrides": {
+      "refinement_boxes": [
+        {
+          "name": "channel-layer",
+          "bounds_m": [
+            -0.028,
+            0.0009,
+            -0.0251,
+            0.028,
+            0.0021,
+            0.0251
+          ],
+          "size_m": 0.0002,
+          "transition_m": 0.0006
+        },
+        {
+          "name": "rib-ends-inlet-side",
+          "bounds_m": [
+            0.024,
+            0.0007,
+            -0.0251,
+            0.029,
+            0.0023,
+            0.0251
+          ],
+          "size_m": 0.00012,
+          "transition_m": 0.0006
+        },
+        {
+          "name": "rib-ends-outlet-side",
+          "bounds_m": [
+            -0.029,
+            0.0007,
+            -0.0251,
+            -0.024,
+            0.0023,
+            0.0251
+          ],
+          "size_m": 0.00012,
+          "transition_m": 0.0006
+        }
+      ]
+    }
+  },
+  "numerics": {
+    "profile": "tet-robust"
+  },
+  "acceptance": {
+    "profile": "project-screening"
+  },
+  "schedule": {
+    "initial": 100,
+    "chunk": 500,
+    "maximum": 3000,
+    "ranks": 8
+  },
+  "prescreen": {
+    "flow_range_L_min": [
+      10,
+      60
+    ],
+    "points": 6,
+    "outlet_pressures_bar": [
+      2,
+      4,
+      8
+    ],
+    "minor_loss_coefficient": 2.5,
+    "supply_pressure_Pa": 800000
+  },
+  "initialization": {
+    "temperature_from_prescreen": true
+  },
+  "decision": {
+    "operator": "Luca",
+    "note": "Revision B (0.1 mm channel fillets, 0.5 mm bullnose rib ends) at the revision A sweep point 40 L/min, 8 bar, copper, 20 C. Question: do the rounded rib ends remove the 6 bar pressure pocket at the channel exits and the pressure non-convergence seen in revision A?"
+  },
+  "notes": "Mesh: same tet-medium base and 0.2 mm channel box as the revision A sweep, plus 0.12 mm boxes over the rib ends (x = +/-24 to 29 mm) so the 0.5 mm bullnoses get about 12 cells around the nose; Mesh.MeshSizeMin follows the smallest box, which also keeps the 0.1 mm corner fillets from being refined below 0.12 mm. Expected 4-5 M cells, about 3 h for 3000 iterations on 8 ranks. Closed pressurized loop assumed: supply_pressure_Pa 8 bar."
+}

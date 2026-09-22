@@ -19,7 +19,8 @@ from src.cfd.cht_case import build as build_case
 from src.cfd.initialize_velocity import initialize as initialize_velocity
 from src.cfd.run_bounded import execute as run_bounded, STOP_STATUSES
 from src.cfd.settings import case_settings
-from src.cfd.warm_start import seed_temperatures
+from src.cfd.map_fields import map_from_case
+from src.cfd.warm_start import seed_temperatures, seed_fields
 from src.foam.hashing import digest, content_hash, short
 from src.foam.lock import compute_lock
 from src.pipeline import spec as spec_module, state as state_module
@@ -144,7 +145,8 @@ class Driver:
             report = generate_mesh(geometry, output, settings)
             return {'output': self.relative(output), 'result': {'mesh': str(output), 'settings': settings, 'profile': name},
                     'summary': {'profile': name, **{k: v for k, v in report['element_counts'].items()},
-                                'wall_mm': round(settings['wall_size_m'] * 1000, 3)}}
+                                'wall_mm': round(settings['wall_size_m'] * 1000, 3),
+                                'min_sicn': round(min(q['min'] for q in report['quality']['regions'].values()), 4)}}
         return self.stage('mesh', key, work, output=str(output.relative_to(self.run)))
 
     def stage_materials(self):
@@ -310,8 +312,10 @@ class Driver:
         settings = self.case_settings()
         identity = {k: v for k, v in settings.items() if k != 'iterations'}
         init = self.resolved['initialization']
+        # The seeding code only enters the key when a case is seeded, so cached cases keep their keys.
+        seeded = ['cfd/warm_start.py', 'cfd/map_fields.py'] if any(k.endswith('_from_case') for k in init) else []
         key = content_hash({'mesh': digest(mesh_path), 'basis': digest(basis_path), 'settings': identity, 'init': init,
-                            'source': source_hash('cfd/cht_case.py', 'cfd/transport.py', 'cfd/turbulence.py', 'cfd/initialize_velocity.py')})
+                            'source': source_hash('cfd/cht_case.py', 'cfd/transport.py', 'cfd/turbulence.py', 'cfd/initialize_velocity.py', *seeded)})
         output = self.run / 'cases' / f'case-{short(key)}'
 
         def work():
@@ -319,6 +323,16 @@ class Driver:
             build_case(output, mesh_path, json.loads(basis_path.read_text()), settings, geometry)
             (output / 'acceptance-criteria.json').write_text(json.dumps(self.resolved['acceptance'], indent=2) + '\n')
             summary = {'numerics': settings['numerics_profile'], 'mass_kg_s': round(settings['mass_flow_kg_s'], 5)}
+            if init.get('fields_from_case'):
+                # Restart: every shared field comes from the settled checkpoint; no potential-flow start.
+                seed_fields(self.root / init['fields_from_case'], output)
+                summary['fields_init'] = init['fields_from_case']
+                return {'output': self.relative(output), 'result': {'case': str(output)}, 'summary': summary}
+            if init.get('fields_mapped_from_case'):
+                # Mesh change: the solved coarse fields are mapped onto this mesh; no potential-flow start.
+                map_from_case(self.root / init['fields_mapped_from_case'], output)
+                summary['fields_init'] = 'mapped from ' + init['fields_mapped_from_case']
+                return {'output': self.relative(output), 'result': {'case': str(output)}, 'summary': summary}
             if settings.get('velocity_initialization') == 'potential':
                 initialize_velocity(output)
                 summary['velocity_init'] = 'potential'

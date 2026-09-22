@@ -44,7 +44,7 @@ def profile(kind, name, overrides=None):
     if name not in profiles:
         raise ValueError(f'Unknown {kind} profile {name!r}; available: {sorted(profiles)}')
     result = copy.deepcopy(profiles[name])
-    unknown = set(overrides or {}) - set(result) - ({'refinement_boxes', 'wall_size_m', 'bulk_size_m', 'transition_distance_m', 'keep_interface_group'} if kind == 'mesh' else set())
+    unknown = set(overrides or {}) - set(result) - ({'refinement_boxes', 'wall_size_m', 'bulk_size_m', 'transition_distance_m', 'keep_interface_group', 'algorithm_3d', 'threads', 'optimize_netgen', 'min_quality'} if kind == 'mesh' else set())
     if unknown:
         raise ValueError(f'Unknown {kind} override keys {sorted(unknown)}; profile keys are {sorted(result)}')
     result.update(overrides or {})
@@ -117,7 +117,10 @@ def resolve(spec, root):
         schedule['ranks'] = max(1, min(4, (os.cpu_count() or 1) // 2))
     if not 0 < schedule['initial'] <= schedule['maximum'] or schedule['chunk'] <= 0 or schedule['ranks'] < 1:
         raise ValueError('schedule requires 0 < initial <= maximum, chunk > 0, ranks >= 1')
-    initialization = _section(spec, 'initialization', {'temperature_from_case', 'temperature_from_prescreen'})
+    initialization = _section(spec, 'initialization', {'temperature_from_case', 'temperature_from_prescreen', 'fields_from_case',
+                                                      'fields_mapped_from_case'})
+    if sum(1 for k in ('temperature_from_case', 'fields_from_case', 'fields_mapped_from_case') if initialization.get(k)) > 1:
+        raise ValueError('initialization: use only one of temperature_from_case, fields_from_case, fields_mapped_from_case')
     prescreen = _section(spec, 'prescreen', PRESCREEN_KEYS)
     prescreen.setdefault('wall_subcooling_margin_K', operating.get('minimum_saturation_margin_K', 10))
     decision = _section(spec, 'decision', DECISION_KEYS)

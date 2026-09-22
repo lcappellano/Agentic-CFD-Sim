@@ -98,6 +98,8 @@ be nearer the CFD result for copper.
   "decision":   {"operator": "name", "note": "why this point was chosen from the prescreen",
                  "required": false,                     "// true": "stop after the prescreen for a human choice"},
   "initialization": {"temperature_from_case": "runs/<run>/cases/case-xxxx",
+                     "fields_from_case": "runs/<run>/cases/case-xxxx",  "// restart": "every shared field from a settled case on the same mesh",
+                     "fields_mapped_from_case": "runs/<run>/cases/case-xxxx",  "// mesh change": "solved fields mapped onto this mesh (mapFields)",
                      "temperature_from_prescreen": false},
   "unapproved_handoff_ok": false,
   "notes": "free text"
@@ -111,12 +113,39 @@ is `constant` or `polynomial` (CoolProp fit; needs `fit_range_K` and
 
 | kind | profiles |
 | --- | --- |
-| mesh | `tet-coarse`, `tet-medium`, `tet-fine`, `tet-test` (sizes scale with inlet hydraulic diameter; `*_m` overrides are absolute) |
-| numerics | `tet-robust` (SST + Spalding, potential-flow start), `tet-robust-slow-energy`, `hex-kepsilon`, `laminar` (chosen automatically when the prescreen regime at the operating point is laminar and the spec names no profile) |
+| mesh | `tet-coarse`, `tet-medium`, `tet-fine`, `tet-test` (sizes scale with inlet hydraulic diameter; `*_m` overrides are absolute). Overrides also take `algorithm_3d` (1 serial Delaunay, 10 parallel HXT: use it above a few million cells), `threads`, `min_quality` (SICN floor, default 0.01) and `optimize_netgen`. Every mesh is checked against the floor before a case is built; a Netgen pass runs first when the floor is missed, and the metadata records the per-region minimum and worst location. |
+| numerics | `tet-robust` (SST + Spalding, potential-flow start), `tet-robust-slow-energy`, `tet-robust-restart` (unlimited solid gradient; only from a settled checkpoint via `initialization.fields_from_case`), `hex-kepsilon`, `laminar` (chosen automatically when the prescreen regime at the operating point is laminar and the spec names no profile) |
 | acceptance | `project-screening`, `test-loose` (tests only) |
 
 Add a profile when a new class of part needs different defaults; do not put
-numbers in prose.
+numbers in prose. Solid names are looked up in `src/thermal/materials.py`
+(`copper`, `cucrzr`, `aluminum_6061`, `stainless_316` and their aliases); add an
+entry with its source there rather than typing properties into a spec.
+
+## Restarting a settled case under changed numerics
+
+A residual floor with settled temperatures and balances (the report says so in
+its next step) is removed by a restart, not by more iterations. Point a new spec
+at the settled case on the same mesh and name the numerics that fix the floor:
+
+```json
+"numerics": {"profile": "tet-robust-restart"},
+"initialization": {"fields_from_case": "runs/<run>/cases/case-xxxx"}
+```
+
+`simulate <spec> --run runs/<run>` reuses the mesh, builds a new case with the
+new schemes, copies every field the two cases share (U, p, p_rgh, T and the
+turbulence fields; never phi) into its `0/` and skips the potential-flow start.
+The operating point and the mesh must be identical; the seeded case is a new
+case with its own gates, and nothing from the source's status is inherited.
+`src.cfd.warm_start` does the same from the command line (`--all-fields`).
+
+For a mesh change (a refinement pair, a new box) use `fields_mapped_from_case`
+instead: `src.cfd.map_fields` runs OpenFOAM `mapFields -consistent` region by
+region from the solved coarse case onto the new mesh and skips the potential-flow
+start. On fine tetrahedral meshes the potential start resolves the singular
+velocity at sharp corners as spikes that a steady start cannot damp; the mapped
+start begins near the answer and needs a fraction of the iterations.
 
 ## Run directory
 
@@ -162,10 +191,47 @@ Every stage is also a module with a CLI, for diagnosis or reuse:
 | solve | `python -m src.cfd.run_bounded CASE --criteria C.json --maximum N` |
 | audit | `python -m src.verification.audit_fields CASE --criteria C.json --output A.json`, `review_history`, `audit_geometry` |
 | export | `python tools/workbench.py results-export RUN --case cases/X --time T --output RUN/results-viewer/x` |
-| variants | `src.cfd.numerical_variant` (change relaxation on a checkpoint), `src.cfd.warm_start`, `src.verification.channel_flows` |
+| variants | `src.cfd.numerical_variant` (change relaxation on a checkpoint), `src.cfd.warm_start` (seed T, or every field with `--all-fields`, from a settled case), `src.verification.channel_flows` |
+| design variants | `python -m src.cad.variants SOURCE.step OUT.STEP --fluid runs/<run>/geometry/geo-x/fluid.brep [--vanes-per-side 2 --vane-x-start 57 --vane-x-end 31]` (bullnose rib ends; header guide vanes; provenance JSON beside the output; `plan_section_svg` draws a plan section for review) |
 
 The OpenFOAM environment is sourced automatically (`src/foam/environment.py`,
 override with `OPENFOAM_BASHRC`). Never wrap commands in `bash -c "source ..."`.
+
+## Design variants
+
+`src/cad/variants.py` writes a new STEP from a reviewed one with the gmsh OCC kernel;
+the input CAD is never modified and a provenance JSON (source hash, operations,
+volumes) sits beside every output. Two operations exist because the manifold
+results asked for them: `bullnose_rib_ends` fills the V-notch at the end of
+each rib between channels and rounds the rib into a semicircle of its half-width,
+and `header_guide_vanes` fuses thin vanes into a wide-angle header, dividing
+its fan into sectors of equal width at the pipe end and at the collector end.
+A variant is a new part: import it with `review-import`, select the ports and the
+heated face, approve, and run it through the same specs and gates. The mapped
+start (`fields_mapped_from_case`) needs identical geometry, so a variant starts
+from a coarse mesh of its own.
+
+## Known-result benchmarks
+
+Everything in `runs/` comes from this code, so the only independent checks are
+parts whose answer is measured. `src/pipeline/benchmarks.py` generates such a
+part as an unapproved handoff (the run carries the synthetic warning; nobody
+approves it): `smooth_tube_handoff` is a copper block with a straight round
+bore, heated on top. Fully developed turbulent pipe flow is the best-measured
+flow there is; `src/verification/duct_benchmark.py` fits the pressure gradient
+over the developed part of the bore and the local Nusselt number from the
+interface heat flux, and reports both against Petukhov's fit of the smooth-pipe
+data and Gnielinski's correlation of the Petukhov-Kirillov data:
+
+```bash
+.venv/bin/python -c "from src.pipeline.benchmarks import smooth_tube_handoff; smooth_tube_handoff('inputs/benchmarks/smooth-tube-d2-l100')"
+.venv/bin/python tools/workbench.py simulate specs/benchmark-smooth-tube-re26k.json
+.venv/bin/python -m src.verification.duct_benchmark runs/<run>/cases/case-x --diameter 0.002 --output runs/<run>/cases/case-x/audits/duct-benchmark.json
+```
+
+The reference spec mimics the manifold channels (0.3 mm isotropic tetrahedra in
+a 2 mm bore, wall functions at y+ about 50, Re 26 000). Rerun it after any
+change to the wall treatment, the mesher or the numerics profiles.
 
 ## Limits
 

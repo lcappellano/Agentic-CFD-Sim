@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "handoff": "inputs/benchmarks/smooth-tube-d2-l100",
+  "label": "benchmark-smooth-tube-re26k",
+  "unapproved_handoff_ok": true,
+  "operating": {
+    "volume_flow_L_min": 2.459,
+    "outlet_absolute_pressure_bar": 8,
+    "inlet_temperature_C": 20,
+    "heat_flux_W_m2": 1000000.0,
+    "temperature_limit_C": 200
+  },
+  "materials": {
+    "solid": "copper",
+    "fluid": "water",
+    "transport": "constant"
+  },
+  "mesh": {
+    "profile": "tet-medium",
+    "overrides": {
+      "wall_size_m": 0.0003,
+      "bulk_size_m": 0.0015,
+      "transition_distance_m": 0.0015,
+      "algorithm_3d": 10,
+      "threads": 8,
+      "refinement_boxes": [
+        {
+          "name": "bore",
+          "bounds_m": [
+            -0.001,
+            0.0028,
+            0.0028,
+            0.101,
+            0.0052,
+            0.0052
+          ],
+          "size_m": 0.0003,
+          "transition_m": 0.0006
+        }
+      ]
+    }
+  },
+  "numerics": {
+    "profile": "tet-robust"
+  },
+  "acceptance": {
+    "profile": "project-screening"
+  },
+  "schedule": {
+    "initial": 100,
+    "chunk": 500,
+    "maximum": 2000,
+    "ranks": 8
+  },
+  "prescreen": {
+    "flow_range_L_min": [
+      0.5,
+      5
+    ],
+    "points": 6,
+    "outlet_pressures_bar": [
+      2,
+      8
+    ],
+    "minor_loss_coefficient": 1.5,
+    "hydraulic_diameter_m": 0.002,
+    "flow_path_length_m": 0.1
+  },
+  "initialization": {
+    "temperature_from_prescreen": true
+  },
+  "decision": {
+    "operator": "Luca",
+    "note": "Smooth-tube benchmark at the manifold channel Reynolds number (26 000); Luca waived the CAD review for this generated part."
+  },
+  "notes": "Known-result benchmark: 2 mm bore, 100 mm long (L/D 50) in an 8 mm square copper block heated on top at 1 MW/m2. Mesh mimics the manifold channels: 0.3 mm isotropic tets in the bore (about 7 cells across, y+ about 50 with wall functions), 1.5 mm bulk. Compare developed friction with Petukhov and Nusselt with Gnielinski via src.verification.duct_benchmark. A 0.15 mm pair is the next step if the friction is off."
+}

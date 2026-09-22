@@ -29,6 +29,10 @@ class PropertiesTests(unittest.TestCase):
         self.assertEqual(solid_name(' OFHC copper '), 'copper')
         self.assertEqual(solid_name('Al 6061'), 'aluminum_6061')
         self.assertEqual(fluid_name('Water'), 'water')
+        self.assertEqual(solid_name('CuCrZr'), 'cucrzr')
+        self.assertEqual(solid_name('Cu-Cr-Zr'), 'cucrzr')
+        self.assertEqual(solid_name('C18150'), 'cucrzr')
+        self.assertEqual(material_basis('CuCrZr', 'water', 293.15)['solid_properties']['conductivity_W_m_K'], 320)
         with self.assertRaises(ValueError):
             solid_name('unobtainium')
 

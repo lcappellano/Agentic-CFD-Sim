@@ -48,5 +48,18 @@ class ProfileResolutionTests(unittest.TestCase):
         self.assertAlmostEqual(settings['wall_size_m'], .0003)
         with self.assertRaises(ValueError):
             resolve_sizes(profile, .008, {'wall_size_m': .01})
+
+    def test_mesher_algorithm_threads_and_quality_floor(self):
+        profile = {'wall_size_per_diameter': .05, 'bulk_size_per_diameter': .2, 'transition_per_diameter': .2}
+        settings = resolve_sizes(profile, .008)
+        self.assertEqual((settings['algorithm_3d'], settings['threads'], settings['optimize_netgen']), (1, 1, True))
+        self.assertGreater(settings['min_quality'], 0)
+        settings = resolve_sizes(profile, .008, {'algorithm_3d': 10, 'threads': 8, 'min_quality': .02, 'optimize_netgen': 0})
+        self.assertEqual((settings['algorithm_3d'], settings['threads'], settings['min_quality'], settings['optimize_netgen']), (10, 8, .02, False))
+        for bad in ({'algorithm_3d': 3}, {'threads': 0}, {'threads': 2.5}, {'threads': True}, {'min_quality': 1}, {'min_quality': -.1}):
+            with self.assertRaises(ValueError):
+                resolve_sizes(profile, .008, bad)
+
+
 if __name__ == '__main__':
     unittest.main()
